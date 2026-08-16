@@ -408,6 +408,46 @@ check('POST /auth/refresh → новая пара', $r['status'] === 200 && isse
 $r = call('POST', '/v1/auth/refresh', ['refreshToken' => $refreshToken]);
 check('повторное использование refresh → 401', $r['status'] === 401);
 
+echo "\nУдаление аккаунта\n";
+
+$deviceKey = 'SMOKE-DELETE-' . bin2hex(random_bytes(4));
+$r = call('POST', '/v1/auth/anonymous', ['deviceId' => $deviceKey], ['Authorization' => '']);
+$accessToken = $r['body']['accessToken'] ?? null;
+$doomedUser = $r['body']['user']['id'] ?? null;
+check('заведён аккаунт под удаление', is_string($accessToken));
+
+$r = call('POST', '/v1/flocks', ['title' => 'Уйдёт вместе с аккаунтом']);
+$doomedFlock = $r['body']['id'] ?? null;
+check('у него есть стадо', $r['status'] === 201);
+
+$r = call('DELETE', '/v1/me');
+check('DELETE /me → 204', $r['status'] === 204, (string) $r['status']);
+
+$r = call('GET', '/v1/me');
+check('старый токен больше не работает', $r['status'] === 401, (string) $r['status']);
+
+$stillThere = \RatiteRun\Api\Core\Database::instance()->fetchValue(
+    'SELECT COUNT(*) FROM flocks WHERE id = ? AND deleted_at IS NULL',
+    [$doomedFlock],
+);
+check('стада удалённого аккаунта скрыты', (int) $stillThere === 0);
+
+$devicesLeft = \RatiteRun\Api\Core\Database::instance()->fetchValue(
+    'SELECT COUNT(*) FROM devices WHERE device_key = ?',
+    [$deviceKey],
+);
+check('привязка устройства удалена (с ней и APNs-токен)', (int) $devicesLeft === 0, 'осталось: ' . $devicesLeft);
+
+// Ключевое: приложение должно уметь войти заново с того же устройства
+$accessToken = null;
+$r = call('POST', '/v1/auth/anonymous', ['deviceId' => $deviceKey]);
+$accessToken = $r['body']['accessToken'] ?? null;
+check('повторный вход с того же устройства работает', $r['status'] === 200 && is_string($accessToken), show($r['body']));
+check('это НОВЫЙ аккаунт, а не воскресший старый', ($r['body']['user']['id'] ?? '') !== $doomedUser);
+
+$r = call('GET', '/v1/flocks');
+check('новый аккаунт не видит стада старого', count($r['body']['data'] ?? []) === 0);
+
 echo "\nЗаголовки безопасности\n";
 
 $r = call('GET', '/v1/species-presets');

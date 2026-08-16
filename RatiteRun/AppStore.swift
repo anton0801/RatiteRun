@@ -607,6 +607,38 @@ final class AppStore: ObservableObject {
         flocks.removeAll()
     }
 
+    /// Сброс после удаления аккаунта.
+    ///
+    /// Локальные данные не должны пережить аккаунт, к которому относились.
+    /// Массив очищается под флагом isApplyingRemote: без него didSet принял бы
+    /// это за удаление стад пользователем и полез бы слать DELETE на сервер,
+    /// где их уже нет — а токен к этому моменту уже недействителен.
+    func resetAfterAccountDeletion() async {
+        for flock in flocks { NotificationManager.shared.cancelAll(for: flock) }
+
+        for task in debounceTasks.values { task.cancel() }
+        debounceTasks.removeAll()
+        refreshTask?.cancel()
+        refreshTask = nil
+        bootstrapTask = nil
+
+        isApplyingRemote = true
+        flocks = []
+        isApplyingRemote = false
+
+        versions.removeAll()
+        serverSnapshot.removeAll()
+        pendingCreates.removeAll()
+        selectedFlockID = nil
+        lastSyncedAt = nil
+        syncState = .idle
+
+        cache.clear()
+
+        // Приложение должно остаться рабочим: поднимаем чистую анонимную сессию.
+        await start()
+    }
+
     // MARK: - Пример стада
 
     @discardableResult

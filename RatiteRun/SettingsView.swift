@@ -23,8 +23,28 @@ struct SettingsView: View {
     @State private var toast: String? = nil
     @State private var shareURL: URL? = nil
     @State private var showShare = false
+    @State private var showDeleteAccount = false
+    @State private var deletingAccount = false
 
     private let currencies = ["£", "$", "€", "₽", "kr"]
+
+    /// Удаление аккаунта на сервере и полный сброс локального состояния.
+    /// Приложение остаётся рабочим — поднимается чистая анонимная сессия.
+    private func deleteAccount() async {
+        deletingAccount = true
+        defer { deletingAccount = false }
+
+        do {
+            try await AuthManager.shared.deleteAccount()
+            notifier.cancelEverything()
+            await store.resetAfterAccountDeletion()
+            toast = "Account deleted — starting fresh"
+        } catch let error as APIError {
+            toast = error.userMessage
+        } catch {
+            toast = "Could not delete the account — check your connection"
+        }
+    }
 
     /// Человекочитаемое состояние резервной копии для карточки «Backup & Data».
     private var backupStatus: String {
@@ -178,6 +198,20 @@ struct SettingsView: View {
                             notifier.cancelEverything()
                             toast = "All flocks deleted"
                         }
+
+                        Divider().background(Palette.divider)
+
+                        // Требование App Store 5.1.1(v): аккаунт должно быть
+                        // возможно удалить изнутри приложения.
+                        GhostButton(title: deletingAccount ? "Deleting…" : "Delete Account",
+                                    systemImage: "person.crop.circle.badge.xmark",
+                                    tint: Palette.danger) {
+                            guard !deletingAccount else { return }
+                            showDeleteAccount = true
+                        }
+                        Text("Removes your flocks, photos and reports from our servers for good. The app keeps working — it simply starts over.")
+                            .font(AppFont.caption).foregroundColor(Palette.textDisabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -232,6 +266,14 @@ struct SettingsView: View {
         .screenBackground()
         .navigationBarTitle("Settings", displayMode: .inline)
         .sheet(isPresented: $showShare) { if let url = shareURL { ShareSheet(items: [url]) } }
+        .alert("Delete your account?", isPresented: $showDeleteAccount) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete Account", role: .destructive) {
+                Task { await deleteAccount() }
+            }
+        } message: {
+            Text("Your flocks, bird records, photos and reports will be removed from our servers permanently. This cannot be undone, and we cannot recover them for you.\n\nExport your data first if you want to keep a copy.")
+        }
         .toast($toast)
     }
 }

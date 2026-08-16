@@ -112,6 +112,16 @@ final class UserRepository
         $this->db->transaction(function (Database $db) use ($userId, $now): void {
             $db->run('UPDATE flocks SET deleted_at = ? WHERE user_id = ? AND deleted_at IS NULL', [$now, $userId]);
             $db->run('UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', [$now, $userId]);
+
+            // Привязки к устройствам удаляются насовсем, а не помечаются.
+            // Две причины. Во-первых, в них лежит APNs-токен — это личные
+            // данные, и «удалить аккаунт» должно означать удалить и их.
+            // Во-вторых, device_key уникален: если строку оставить, следующий
+            // анонимный вход с этого же устройства не найдёт живого владельца,
+            // попытается создать нового и упрётся в UNIQUE — приложение
+            // навсегда потеряет возможность войти.
+            $db->run('DELETE FROM devices WHERE user_id = ?', [$userId]);
+
             $db->run('UPDATE users SET deleted_at = ?, apple_sub = NULL, email = NULL, updated_at = ? WHERE id = ?', [$now, $now, $userId]);
         });
     }

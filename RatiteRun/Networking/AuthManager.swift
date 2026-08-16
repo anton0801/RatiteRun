@@ -174,9 +174,16 @@ final class AuthManager: ObservableObject {
     }
 
     /// Удаление аккаунта и всех данных на сервере.
+    ///
+    /// После удаления заводится новый идентификатор устройства. Иначе
+    /// следующий анонимный вход привязался бы к тому же device_key, и новый
+    /// аккаунт можно было бы связать со старым — то есть «удаление» оставляло
+    /// бы след. Сервер свою половину пары тоже удаляет.
     func deleteAccount() async throws {
         try await APIClient.shared.sendVoid(APIRequest(method: "DELETE", path: "me"))
+
         clearTokens()
+        Keychain.set(UUID().uuidString, for: Key.deviceId)
     }
 
     // MARK: Хранение
