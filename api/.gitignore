@@ -1,0 +1,5 @@
+.env
+storage/photos/
+storage/reports/
+storage/apple-jwks.json
+*.log

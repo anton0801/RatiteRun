@@ -1,0 +1,1564 @@
+openapi: 3.1.0
+
+info:
+  title: RatiteRun API
+  version: "1.0.0"
+  description: |
+    REST API приложения RatiteRun — планировщик содержания страусоподобных птиц
+    (страус, эму, нанду).
+
+    Ключевые решения:
+
+    * **Стадо — агрегат.** Секции (`housing`, `fencing`, `feed`, …) адресуются
+      как самостоятельные подресурсы, потому что каждая соответствует одному
+      экрану приложения. Экран редактирует загон — уходит `PUT /housing`,
+      а не перезапись всего стада.
+    * **Оптимистичные блокировки.** Полный агрегат отдаётся с `ETag` (это
+      целочисленная версия). Записи принимают `If-Match`; расхождение — `412`.
+    * **Движки оценки на сервере и на клиенте.** Приложение считает готовность
+      локально для мгновенного отклика, сервер — для отчётов и веб-доступа.
+      Формулы обязаны совпадать: `Engines.php` — порт `Engines.swift`.
+    * **Нормативы по видам в базе, а не в бинарнике.** Правка рекомендованной
+      площади на птицу не требует релиза в App Store.
+    * **Анонимный вход.** Приложение обещает «no account, no sign-up»;
+      идентичность привязана к устройству, Apple ID — опциональная надстройка
+      для синхронизации между устройствами.
+
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.ratiterun.online/v1
+    description: Production
+  - url: http://127.0.0.1:8080/v1
+    description: Local
+
+tags:
+  - name: Auth
+    description: Анонимные сессии, Apple ID, устройства
+  - name: Flocks
+    description: Стада — агрегат верхнего уровня
+  - name: Sections
+    description: Секции стада, по одной на экран приложения
+  - name: Collections
+    description: Записи о птицах, напоминания, план загона
+  - name: Analysis
+    description: Движки оценки — готовность, вердикты, смета
+  - name: Reports
+    description: PDF-отчёты и публичные ссылки
+  - name: Reference
+    description: Справочники по видам и тексты
+  - name: Support
+    description: Обращения в поддержку
+  - name: Account
+    description: Экспорт, здоровье сервиса
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ---------------------------------------------------------------- Auth ----
+
+  /auth/anonymous:
+    post:
+      tags: [Auth]
+      summary: Анонимная сессия по идентификатору устройства
+      description: |
+        Повторный вызов с тем же `deviceId` возвращает того же пользователя —
+        переустановка приложения не плодит аккаунты и не теряет стада.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId]
+              properties:
+                deviceId:   { type: string, maxLength: 191, description: identifierForVendor }
+                platform:   { type: string, enum: [ios, ipados, macos] }
+                timezone:   { type: string, example: Europe/Moscow }
+                appVersion: { type: string }
+      responses:
+        "200":
+          description: Пара токенов и профиль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/apple:
+    post:
+      tags: [Auth]
+      summary: Привязка Apple ID или вход по нему
+      description: |
+        С валидным access-токеном привязывает Apple ID к текущему анонимному
+        аккаунту. Без токена — вход в аккаунт, ранее привязанный к этому Apple ID.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identityToken]
+              properties:
+                identityToken: { type: string, description: JWT из Sign in with Apple }
+                displayName:   { type: string, maxLength: 120 }
+      responses:
+        "200":
+          description: Пара токенов и профиль
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AuthResponse"
+                  - type: object
+                    properties:
+                      linked:
+                        type: boolean
+                        description: false — под этим Apple ID уже был другой аккаунт
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Обновление пары токенов
+      description: |
+        Refresh-токен ротируется на каждый вызов. Повторное использование
+        отозванного токена гасит всю цепочку пользователя — защита от кражи.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "200":
+          description: Новая пара
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Отзыв refresh-токена
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string }
+                allDevices:   { type: boolean, default: false }
+      responses:
+        "204": { description: Отозван }
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: Текущий пользователь
+      responses:
+        "200":
+          description: Профиль
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: object
+                    properties:
+                      flockCount: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [Auth]
+      summary: Удаление аккаунта и всех данных
+      responses:
+        "204": { description: Удалён }
+
+  /devices:
+    post:
+      tags: [Auth]
+      summary: Регистрация APNs-токена
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId]
+              properties:
+                deviceId:   { type: string }
+                apnsToken:  { type: string }
+                platform:   { type: string, enum: [ios, ipados, macos] }
+                timezone:   { type: string }
+                appVersion: { type: string }
+      responses:
+        "200":
+          description: Зарегистрировано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:       { type: string, format: uuid }
+                  deviceId: { type: string }
+
+  /devices/{id}:
+    delete:
+      tags: [Auth]
+      summary: Снятие регистрации устройства
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Снято }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # -------------------------------------------------------------- Flocks ----
+
+  /flocks:
+    get:
+      tags: [Flocks]
+      summary: Список стад (сводки)
+      description: |
+        Отдаёт сводки, а не полные агрегаты: выбор стада в приложении не должен
+        тянуть мегабайты. Готовность уже посчитана и лежит в `readinessPercent`.
+      parameters:
+        - { name: status,  in: query, schema: { $ref: "#/components/schemas/FlockStatus" } }
+        - { name: species, in: query, schema: { $ref: "#/components/schemas/Species" } }
+        - { name: limit,   in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 200 } }
+        - { name: cursor,  in: query, schema: { type: string }, description: Из nextCursor предыдущей страницы }
+      responses:
+        "200":
+          description: Страница сводок
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/FlockSummary" }
+                  nextCursor:
+                    type: [string, "null"]
+
+    post:
+      tags: [Flocks]
+      summary: Создание стада
+      description: |
+        `id` можно задать самому: приложение вставляет стадо в список
+        оптимистично и не переклеивает идентификатор после ответа.
+        Секции заполняются нормативами вида — так же, как это делает
+        `AppStore.addEmpty()` на клиенте.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:       { type: string, format: uuid }
+                title:    { type: string, maxLength: 160 }
+                species:  { $ref: "#/components/schemas/Species" }
+                count:    { type: integer, minimum: 1, maximum: 100000 }
+                age:      { type: string, maxLength: 80 }
+                notes:    { type: string, maxLength: 4000 }
+                priority: { $ref: "#/components/schemas/Priority" }
+                status:   { $ref: "#/components/schemas/FlockStatus" }
+      responses:
+        "201":
+          description: Создано
+          headers:
+            ETag:     { $ref: "#/components/headers/ETag" }
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flock" }
+        "409": { description: Стадо с таким id уже существует }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /flocks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+    get:
+      tags: [Flocks]
+      summary: Полный агрегат
+      parameters:
+        - { name: If-None-Match, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Стадо
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flock" }
+        "304": { description: Не изменилось }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Flocks]
+      summary: Правка полей верхнего уровня
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:    { type: string, maxLength: 160 }
+                species:  { $ref: "#/components/schemas/Species" }
+                count:    { type: integer, minimum: 1 }
+                age:      { type: string }
+                notes:    { type: string }
+                priority: { $ref: "#/components/schemas/Priority" }
+                status:   { $ref: "#/components/schemas/FlockStatus" }
+      responses:
+        "200":
+          description: Обновлено
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flock" }
+        "412": { $ref: "#/components/responses/StaleVersion" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Flocks]
+      summary: Удаление (мягкое)
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /flocks/{id}/duplicate:
+    post:
+      tags: [Flocks]
+      summary: Копия стада
+      description: Подпись приёмки не копируется — она относится к исходному стаду.
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+      responses:
+        "201":
+          description: Копия создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flock" }
+
+  # ------------------------------------------------------------ Sections ----
+
+  /flocks/{id}/{section}:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+      - name: section
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [housing, fencing, feed, water-grit, handling, breeding,
+                 rearing, health, predator, terrain, signoff, markup]
+    get:
+      tags: [Sections]
+      summary: Чтение секции
+      responses:
+        "200":
+          description: Секция
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlockSectionBody" }
+    put:
+      tags: [Sections]
+      summary: Запись секции
+      description: |
+        Отсутствующие поля берутся из текущего значения — PUT работает как
+        частичное слияние. Это нужно, чтобы экран, правящий одно поле, не
+        обнулял остальные. Смета материалов пересчитывается автоматически.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FlockSectionBody" }
+      responses:
+        "200":
+          description: Записано
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlockSectionBody" }
+        "412": { $ref: "#/components/responses/StaleVersion" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  # --------------------------------------------------------- Collections ----
+
+  /flocks/{id}/birds:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+    get:
+      tags: [Collections]
+      summary: Записи о птицах
+      parameters:
+        - { name: birdId, in: query, schema: { type: string }, description: Фильтр по бирке }
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/BirdRecord" }
+    post:
+      tags: [Collections]
+      summary: Новая запись
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [birdId]
+              properties:
+                birdId:     { type: string, maxLength: 80 }
+                weightKg:   { type: number, minimum: 0, maximum: 1000 }
+                heightCm:   { type: number, minimum: 0, maximum: 1000 }
+                note:       { type: string, maxLength: 2000 }
+                recordedAt: { type: string, format: date-time }
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BirdRecord" }
+
+  /flocks/{id}/birds/{recordId}:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+      - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Collections]
+      summary: Одна запись
+      responses:
+        "200":
+          description: Запись
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BirdRecord" }
+    patch:
+      tags: [Collections]
+      summary: Правка записи
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                birdId:     { type: string }
+                weightKg:   { type: number }
+                heightCm:   { type: number }
+                note:       { type: string }
+                recordedAt: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Обновлена
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BirdRecord" }
+    delete:
+      tags: [Collections]
+      summary: Удаление записи
+      responses:
+        "204": { description: Удалена }
+
+  /flocks/{id}/growth:
+    get:
+      tags: [Collections]
+      summary: Динамика веса по каждой птице
+      description: |
+        Приложение уже собирает вес и рост в «Records & ID», но нигде их не
+        показывает. Этот эндпоинт даёт готовые ряды для графиков роста.
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+      responses:
+        "200":
+          description: Ряды по птицам
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        birdId:      { type: string }
+                        points:      { type: integer }
+                        firstAt:     { type: string, format: date-time }
+                        lastAt:      { type: string, format: date-time }
+                        minWeightKg: { type: number }
+                        maxWeightKg: { type: number }
+                        gainKg:      { type: number }
+
+  /flocks/{id}/reminders:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+    get:
+      tags: [Collections]
+      summary: Напоминания
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Reminder" }
+    post:
+      tags: [Collections]
+      summary: Новое напоминание
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind:    { $ref: "#/components/schemas/ReminderKind" }
+                title:   { type: string, maxLength: 160 }
+                hour:    { type: integer, minimum: 0, maximum: 23 }
+                minute:  { type: integer, minimum: 0, maximum: 59 }
+                enabled: { type: boolean, default: true }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reminder" }
+
+  /flocks/{id}/reminders/{reminderId}:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+      - { name: reminderId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Collections]
+      summary: Правка напоминания
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:    { $ref: "#/components/schemas/ReminderKind" }
+                title:   { type: string }
+                hour:    { type: integer }
+                minute:  { type: integer }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Reminder" }
+    delete:
+      tags: [Collections]
+      summary: Удаление напоминания
+      responses:
+        "204": { description: Удалено }
+
+  /flocks/{id}/layout:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+    get:
+      tags: [Collections]
+      summary: План загона
+      responses:
+        "200":
+          description: Объекты на плане
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LayoutItem" }
+    put:
+      tags: [Collections]
+      summary: Замена доски целиком
+      description: |
+        Перетаскивание объектов не должно порождать запрос на каждый кадр,
+        поэтому доска отправляется одной операцией по отпусканию пальца.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [kind]
+                    properties:
+                      kind: { $ref: "#/components/schemas/LayoutKind" }
+                      x:    { type: number, minimum: 0, maximum: 1 }
+                      y:    { type: number, minimum: 0, maximum: 1 }
+      responses:
+        "200":
+          description: Доска заменена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/LayoutItem" }
+    post:
+      tags: [Collections]
+      summary: Один объект на план
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { $ref: "#/components/schemas/LayoutKind" }
+                x:    { type: number }
+                y:    { type: number }
+      responses:
+        "201":
+          description: Добавлен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutItem" }
+
+  /flocks/{id}/layout/{itemId}:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+      - { name: itemId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Collections]
+      summary: Перемещение объекта
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: { $ref: "#/components/schemas/LayoutKind" }
+                x:    { type: number }
+                y:    { type: number }
+      responses:
+        "200":
+          description: Обновлён
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LayoutItem" }
+    delete:
+      tags: [Collections]
+      summary: Удаление объекта
+      responses:
+        "204": { description: Удалён }
+
+  /flocks/{id}/photo:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+    get:
+      tags: [Collections]
+      summary: Фото стада
+      responses:
+        "200":
+          description: JPEG
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Collections]
+      summary: Загрузка фото
+      description: |
+        Файл пересобирается через GD: сбрасывается EXIF и любая полезная
+        нагрузка внутри картинки, размер ограничивается 1600 px по длинной стороне.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo: { type: string, format: binary }
+      responses:
+        "200":
+          description: Загружено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  photoUrl:  { type: string }
+                  updatedAt: { type: string, format: date-time }
+        "413": { description: Файл больше 12 МБ }
+        "415": { description: Не JPEG / PNG / WebP }
+    delete:
+      tags: [Collections]
+      summary: Удаление фото
+      responses:
+        "204": { description: Удалено }
+
+  /flocks/{id}/history:
+    get:
+      tags: [Collections]
+      summary: Журнал изменений
+      description: «Кто и когда поменял высоту забора» — для проверок и разбора.
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 500 } }
+      responses:
+        "200":
+          description: Записи журнала
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:        { type: integer }
+                        action:    { type: string, example: flock.section.update }
+                        path:      { type: [string, "null"], example: housing }
+                        payload:   { type: [object, "null"] }
+                        createdAt: { type: string, format: date-time }
+
+  # ------------------------------------------------------------ Analysis ----
+
+  /flocks/{id}/readiness:
+    get:
+      tags: [Analysis]
+      summary: Общая готовность
+      description: |
+        Веса: пространство 25%, ограждение 20%, рацион 20%, безопасность 15%,
+        вода и гравий 10%, здоровье 10%. Совпадает с `ReadinessEngine.swift`.
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+      responses:
+        "200":
+          description: Готовность
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+
+  /flocks/{id}/evaluation:
+    get:
+      tags: [Analysis]
+      summary: Все вердикты движков разом
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+      responses:
+        "200":
+          description: Полная оценка
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Evaluation" }
+
+  /flocks/{id}/kit:
+    get:
+      tags: [Analysis]
+      summary: Расчётный список материалов
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+      responses:
+        "200":
+          description: Материалы
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaterialKit" }
+
+  /flocks/{id}/cost:
+    get:
+      tags: [Analysis]
+      summary: Смета по ставкам
+      parameters:
+        - $ref: "#/components/parameters/FlockId"
+        - { name: fenceRate,   in: query, schema: { type: number, default: 35 } }
+        - { name: shelterRate, in: query, schema: { type: number, default: 60 } }
+        - { name: feederRate,  in: query, schema: { type: number, default: 45 } }
+        - { name: gritRate,    in: query, schema: { type: number, default: 3 } }
+        - { name: labourRate,  in: query, schema: { type: number, default: 120 } }
+      responses:
+        "200":
+          description: Смета
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kit:  { $ref: "#/components/schemas/MaterialKit" }
+                  cost: { $ref: "#/components/schemas/CostBreakdown" }
+
+  /evaluate:
+    post:
+      tags: [Analysis]
+      summary: Оценка черновика без сохранения
+      description: |
+        «Что если»: клиент шлёт незаписанное состояние и получает вердикты.
+        Нужно для экранов, где пользователь ещё крутит ползунки, и для
+        будущей веб-версии калькулятора.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [species, count]
+              properties:
+                species:   { $ref: "#/components/schemas/Species" }
+                count:     { type: integer, minimum: 1 }
+                housing:   { type: object }
+                fencing:   { type: object }
+                feed:      { type: object }
+                waterGrit: { type: object }
+                handling:  { type: object }
+                breeding:  { type: object }
+                rearing:   { type: object }
+                health:    { type: object }
+                predator:  { type: object }
+                terrain:   { type: object }
+      responses:
+        "200":
+          description: Оценка
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Evaluation" }
+
+  # ------------------------------------------------------------- Reports ----
+
+  /flocks/{id}/reports:
+    parameters:
+      - $ref: "#/components/parameters/FlockId"
+    get:
+      tags: [Reports]
+      summary: История отчётов
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Report" }
+    post:
+      tags: [Reports]
+      summary: Сборка PDF-отчёта
+      description: |
+        Разделы и формулировки те же, что в `ReportGenerator.swift`.
+        `shareable: true` выдаёт публичную ссылку — ветеринар или инспектор
+        открывает PDF без аккаунта.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sections:
+                  type: array
+                  items:
+                    type: string
+                    enum: [spaceFence, diet, safety, health, breeding]
+                notes:     { type: string, maxLength: 4000 }
+                currency:  { type: string, maxLength: 8, default: "£" }
+                shareable: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Отчёт готов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+
+  /reports/{reportId}:
+    get:
+      tags: [Reports]
+      summary: Метаданные отчёта
+      parameters:
+        - { name: reportId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Отчёт
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+
+  /reports/{reportId}/pdf:
+    get:
+      tags: [Reports]
+      summary: Файл отчёта
+      parameters:
+        - { name: reportId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+
+  /shared/reports/{token}:
+    get:
+      tags: [Reports]
+      summary: Публичный доступ к отчёту
+      description: Токен случайный, отчёт протухает по `expiresAt`.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string, pattern: "^[0-9a-f]{32}$" } }
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "404": { description: Ссылка истекла или не существует }
+
+  # ----------------------------------------------------------- Reference ----
+
+  /species-presets:
+    get:
+      tags: [Reference]
+      summary: Нормативы по всем видам
+      description: |
+        Здесь живут цифры, которые сейчас зашиты в `Presets.swift`:
+        рекомендованная площадь на птицу, высота забора, срок инкубации,
+        уровень риска удара. Правятся в базе — релиз приложения не нужен.
+      security: []
+      parameters:
+        - { name: locale, in: query, schema: { type: string, default: en } }
+        - { name: If-None-Match, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Справочник
+          headers:
+            ETag:          { $ref: "#/components/headers/ETag" }
+            Cache-Control: { schema: { type: string, example: "public, max-age=3600" } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SpeciesPreset" }
+                  locale:  { type: string }
+                  version: { type: string }
+        "304": { description: Не изменилось }
+
+  /species-presets/{species}:
+    get:
+      tags: [Reference]
+      summary: Норматив по одному виду
+      security: []
+      parameters:
+        - { name: species, in: path, required: true, schema: { $ref: "#/components/schemas/Species" } }
+        - { name: locale,  in: query, schema: { type: string, default: en } }
+      responses:
+        "200":
+          description: Норматив
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpeciesPreset" }
+
+  /content/{slug}:
+    get:
+      tags: [Reference]
+      summary: Текстовый блок
+      description: |
+        Дисклеймер о безопасности и правила обращения. Сейчас это константы
+        в бинарнике; вынос на сервер позволяет их уточнять между релизами.
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, example: disclaimer }
+        - { name: locale, in: query, schema: { type: string, default: en } }
+      responses:
+        "200":
+          description: Текст
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:   { type: string }
+                  locale: { type: string }
+                  body:   { type: string }
+
+  # ------------------------------------------------------------- Support ----
+
+  /support:
+    post:
+      tags: [Support]
+      summary: Обращение в поддержку из приложения
+      description: |
+        Тот же сценарий, что и веб-форма на `https://ratiterun.online/support-form`,
+        но в JSON и от уже известного пользователя — роль CSRF-токена здесь
+        играет access-токен.
+
+        Имя и почта необязательны: у анонимного аккаунта их может не быть,
+        тогда подставляются заглушки и обращение всё равно доходит.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, message]
+              properties:
+                name:       { type: string, maxLength: 120 }
+                email:      { type: string, format: email, maxLength: 255 }
+                subject:    { type: string, maxLength: 200 }
+                message:    { type: string, minLength: 10, maxLength: 5000 }
+                appVersion: { type: string, maxLength: 32 }
+                deviceInfo: { type: string, maxLength: 191 }
+      responses:
+        "201":
+          description: Принято
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:        { type: string, format: uuid }
+                  createdAt: { type: string, format: date-time }
+                  message:   { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  # ------------------------------------------------------------- Account ----
+
+  /export:
+    get:
+      tags: [Account]
+      summary: Полный экспорт данных
+      responses:
+        "200":
+          description: JSON со всеми стадами
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schemaVersion: { type: integer }
+                  exportedAt:    { type: string, format: date-time }
+                  flockCount:    { type: integer }
+                  flocks:
+                    type: array
+                    items: { $ref: "#/components/schemas/Flock" }
+
+  /health:
+    get:
+      tags: [Account]
+      summary: Проверка живости
+      security: []
+      responses:
+        "200":
+          description: Живой
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:   { type: string, enum: [ok, degraded] }
+                  database: { type: boolean }
+                  time:     { type: string, format: date-time }
+        "503": { description: База недоступна }
+
+# ---------------------------------------------------------------------------
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    FlockId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IfMatch:
+      name: If-Match
+      in: header
+      schema: { type: string, example: '"3"' }
+      description: |
+        Версия, от которой клиент отталкивается. Расхождение — `412`:
+        ресурс изменили на другом устройстве.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, maxLength: 191 }
+      description: |
+        Повтор с тем же ключом и тем же телом возвращает сохранённый ответ
+        вместо создания дубликата. Тот же ключ с другим телом — `409`.
+
+  headers:
+    ETag:
+      schema: { type: string, example: '"3"' }
+      description: Целочисленная версия ресурса.
+
+  responses:
+    Unauthorized:
+      description: Токен отсутствует, истёк или невалиден
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: |
+        Не найдено. Чужие ресурсы тоже отдают 404, а не 403 — чтобы по коду
+        ответа нельзя было проверить существование стада.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ValidationError:
+      description: Тело не прошло валидацию
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    StaleVersion:
+      description: Ресурс изменён — перечитать и повторить с актуальным ETag
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    RateLimited:
+      description: Превышен лимит запросов
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+
+    Problem:
+      type: object
+      description: RFC 9457 application/problem+json
+      properties:
+        type:     { type: string, example: "https://api.ratiterun.online/problems/validation" }
+        title:    { type: string, example: Unprocessable Entity }
+        status:   { type: integer, example: 422 }
+        detail:   { type: string }
+        instance: { type: string }
+        errors:
+          type: object
+          description: Пополевые ошибки валидации
+          additionalProperties:
+            type: array
+            items: { type: string }
+          example:
+            strength: ["Must be between 1 and 5."]
+
+    Species:
+      type: string
+      enum: [ostrich, emu, rhea]
+    Priority:
+      type: string
+      enum: [low, medium, high]
+    FlockStatus:
+      type: string
+      enum: [setup, active, attention, danger]
+    Verdict:
+      type: string
+      enum: [good, watch, alert]
+    ReminderKind:
+      type: string
+      enum: [feedGrit, water, fenceCheck, legHealth]
+    LayoutKind:
+      type: string
+      enum: [paddock, shelter, feeder, waterer, gate, dustBath]
+    TerrainType:
+      type: string
+      enum: [flat, sloped, sandy, grassland, mixed]
+    DietType:
+      type: string
+      enum: [grazing, formulated, mixed]
+
+    User:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        isAnonymous: { type: boolean }
+        email:       { type: [string, "null"] }
+        displayName: { type: [string, "null"] }
+        createdAt:   { type: string, format: date-time }
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:  { type: string }
+        refreshToken: { type: string }
+        tokenType:    { type: string, example: Bearer }
+        expiresIn:    { type: integer, example: 3600 }
+        user:         { $ref: "#/components/schemas/User" }
+
+    Stroke:
+      type: array
+      description: Один штрих — последовательность точек в нормализованных координатах.
+      items:
+        type: object
+        properties:
+          x: { type: number }
+          y: { type: number }
+
+    FlockSummary:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        title:            { type: string }
+        species:          { $ref: "#/components/schemas/Species" }
+        count:            { type: integer }
+        age:              { type: string }
+        priority:         { $ref: "#/components/schemas/Priority" }
+        status:           { $ref: "#/components/schemas/FlockStatus" }
+        readinessPercent: { type: integer, minimum: 0, maximum: 100 }
+        photoUrl:         { type: [string, "null"] }
+        version:          { type: integer }
+        createdDate:      { type: string, format: date-time }
+        updatedAt:        { type: string, format: date-time }
+
+    Flock:
+      allOf:
+        - $ref: "#/components/schemas/FlockSummary"
+        - type: object
+          properties:
+            notes:     { type: string }
+            housing:   { $ref: "#/components/schemas/Housing" }
+            fencing:   { $ref: "#/components/schemas/Fencing" }
+            feed:      { $ref: "#/components/schemas/Feed" }
+            waterGrit: { $ref: "#/components/schemas/WaterGrit" }
+            handling:  { $ref: "#/components/schemas/Handling" }
+            breeding:  { $ref: "#/components/schemas/Breeding" }
+            rearing:   { $ref: "#/components/schemas/Rearing" }
+            health:    { $ref: "#/components/schemas/Health" }
+            predator:  { $ref: "#/components/schemas/Predator" }
+            terrain:   { $ref: "#/components/schemas/Terrain" }
+            kit:       { $ref: "#/components/schemas/MaterialKit" }
+            signoff:   { $ref: "#/components/schemas/Signoff" }
+            markup:    { $ref: "#/components/schemas/Markup" }
+            birds:
+              type: array
+              items: { $ref: "#/components/schemas/BirdRecord" }
+            reminders:
+              type: array
+              items: { $ref: "#/components/schemas/Reminder" }
+            layout:
+              type: array
+              items: { $ref: "#/components/schemas/LayoutItem" }
+            readiness: { $ref: "#/components/schemas/Readiness" }
+
+    FlockSectionBody:
+      description: |
+        Одна из секций стада. Конкретный набор полей зависит от `{section}`
+        в пути — см. схемы Housing, Fencing, Feed и далее.
+      oneOf:
+        - $ref: "#/components/schemas/Housing"
+        - $ref: "#/components/schemas/Fencing"
+        - $ref: "#/components/schemas/Feed"
+        - $ref: "#/components/schemas/WaterGrit"
+        - $ref: "#/components/schemas/Handling"
+        - $ref: "#/components/schemas/Breeding"
+        - $ref: "#/components/schemas/Rearing"
+        - $ref: "#/components/schemas/Health"
+        - $ref: "#/components/schemas/Predator"
+        - $ref: "#/components/schemas/Terrain"
+        - $ref: "#/components/schemas/Signoff"
+        - $ref: "#/components/schemas/Markup"
+
+    Housing:
+      type: object
+      properties:
+        spacePerBird: { type: number, description: "м² на птицу" }
+        shelterArea:  { type: number, description: "м² укрытия" }
+        paddockSize:  { type: number, description: "м² загона" }
+        terrain:      { $ref: "#/components/schemas/TerrainType" }
+        hasShelter:   { type: boolean }
+
+    Fencing:
+      type: object
+      properties:
+        height:           { type: number, description: "метры" }
+        strength:         { type: integer, minimum: 1, maximum: 5 }
+        escapeRiskNote:   { type: string }
+        perimeterSecured: { type: boolean }
+
+    Feed:
+      type: object
+      properties:
+        dietType:     { $ref: "#/components/schemas/DietType" }
+        grazingRatio: { type: number, minimum: 0, maximum: 100 }
+        proteinPct:   { type: number, minimum: 0, maximum: 100 }
+        scheduleNote: { type: string }
+
+    WaterGrit:
+      type: object
+      properties:
+        waterProvided:    { type: boolean }
+        gritProvided:     { type: boolean }
+        gritGramsPerBird: { type: number }
+        mineralsProvided: { type: boolean }
+        notes:            { type: string }
+
+    Handling:
+      type: object
+      properties:
+        neverCorner:         { type: boolean }
+        approachFromSide:    { type: boolean }
+        useHood:             { type: boolean }
+        trainedHandlersOnly: { type: boolean }
+        restraintPlan:       { type: string }
+
+    Breeding:
+      type: object
+      properties:
+        pairs:          { type: integer }
+        largeEggs:      { type: integer }
+        incubationNote: { type: string }
+        season:         { type: string }
+        startDate:      { type: string, format: date-time }
+
+    Rearing:
+      type: object
+      properties:
+        chicks:           { type: integer }
+        brooderReady:     { type: boolean }
+        legIssuesFlagged: { type: boolean }
+        chickDietNote:    { type: string }
+
+    Health:
+      type: object
+      properties:
+        legJointScore: { type: integer, minimum: 1, maximum: 5 }
+        ailmentsNote:  { type: string }
+        vetContact:    { type: string }
+        lastCheck:     { type: string, format: date-time }
+
+    Predator:
+      type: object
+      properties:
+        fenceIntegrity: { type: integer, minimum: 1, maximum: 5 }
+        predatorsSeen:  { type: string }
+        securityNote:   { type: string }
+        lastChecked:    { type: string, format: date-time }
+
+    Terrain:
+      type: object
+      properties:
+        dustBathing: { type: boolean }
+        roomToRun:   { type: boolean }
+        terrainNote: { type: string }
+
+    MaterialKit:
+      type: object
+      description: Считается сервером при каждом изменении площади или поголовья.
+      properties:
+        fenceMeters:   { type: number }
+        feeders:       { type: integer }
+        waterers:      { type: integer }
+        gritKg:        { type: number }
+        shelterM2:     { type: number }
+        safetyKitNote: { type: string }
+
+    Signoff:
+      type: object
+      properties:
+        reviewer: { type: string }
+        signatureStrokes:
+          type: array
+          items: { $ref: "#/components/schemas/Stroke" }
+        date:     { type: string, format: date-time }
+        approved: { type: boolean }
+
+    Markup:
+      type: object
+      properties:
+        strokes:
+          type: array
+          items: { $ref: "#/components/schemas/Stroke" }
+        caption: { type: string }
+
+    BirdRecord:
+      type: object
+      properties:
+        id:       { type: string, format: uuid }
+        birdID:   { type: string }
+        weightKg: { type: number }
+        heightCm: { type: number }
+        note:     { type: string }
+        date:     { type: string, format: date-time }
+
+    Reminder:
+      type: object
+      properties:
+        id:      { type: string, format: uuid }
+        kind:    { $ref: "#/components/schemas/ReminderKind" }
+        title:   { type: string }
+        hour:    { type: integer }
+        minute:  { type: integer }
+        enabled: { type: boolean }
+
+    LayoutItem:
+      type: object
+      properties:
+        id:   { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/LayoutKind" }
+        x:    { type: number, minimum: 0, maximum: 1 }
+        y:    { type: number, minimum: 0, maximum: 1 }
+
+    Readiness:
+      type: object
+      properties:
+        percent: { type: integer, minimum: 0, maximum: 100 }
+        band:    { type: string, enum: ["Ready", "Getting there", "Needs work", "Not ready"] }
+        parts:
+          type: object
+          properties:
+            space:     { type: number }
+            fencing:   { type: number }
+            diet:      { type: number }
+            gritWater: { type: number }
+            safety:    { type: number }
+            health:    { type: number }
+
+    EngineResult:
+      type: object
+      properties:
+        verdict:  { $ref: "#/components/schemas/Verdict" }
+        headline: { type: string, example: Ample space }
+        detail:   { type: string }
+        score:    { type: number, minimum: 0, maximum: 1 }
+
+    Evaluation:
+      type: object
+      properties:
+        readiness: { $ref: "#/components/schemas/Readiness" }
+        space:
+          allOf:
+            - $ref: "#/components/schemas/EngineResult"
+            - type: object
+              properties:
+                perBirdM2:       { type: number }
+                requiredTotalM2: { type: number }
+                ratio:           { type: number }
+        fencing:   { $ref: "#/components/schemas/EngineResult" }
+        diet:      { $ref: "#/components/schemas/EngineResult" }
+        gritWater: { $ref: "#/components/schemas/EngineResult" }
+        safety:
+          allOf:
+            - $ref: "#/components/schemas/EngineResult"
+            - type: object
+              properties:
+                safetyScore: { type: integer, minimum: 5, maximum: 100 }
+                rules:
+                  type: array
+                  items: { type: string }
+        health:    { $ref: "#/components/schemas/EngineResult" }
+        breeding:
+          allOf:
+            - $ref: "#/components/schemas/EngineResult"
+            - type: object
+              properties:
+                hatchDate: { type: string, format: date-time }
+                window:    { type: string, example: "±6 days" }
+        kit:  { $ref: "#/components/schemas/MaterialKit" }
+        cost: { $ref: "#/components/schemas/CostBreakdown" }
+
+    CostBreakdown:
+      type: object
+      properties:
+        fence:   { type: number }
+        shelter: { type: number }
+        feeders: { type: number }
+        grit:    { type: number }
+        labour:  { type: number }
+        total:   { type: number }
+
+    SpeciesPreset:
+      type: object
+      properties:
+        species:           { $ref: "#/components/schemas/Species" }
+        label:             { type: string }
+        adultMassKg:       { type: number }
+        spacePerBirdM2:    { type: number }
+        minSpacePerBirdM2: { type: number }
+        recFenceHeightM:   { type: number }
+        minFenceHeightM:   { type: number }
+        recFenceStrength:  { type: integer }
+        incubationDays:    { type: integer }
+        eggMassG:          { type: number }
+        kickRiskLevel:     { type: integer, minimum: 1, maximum: 5 }
+        kickRiskLabel:     { type: string, enum: [Low, Moderate, High, Extreme] }
+        targetProteinPct:  { type: number }
+        gritImportance:    { type: integer }
+        legIssueRisk:      { type: integer }
+        hatchWindowDays:   { type: integer }
+
+    Report:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        flockId:   { type: string, format: uuid }
+        status:    { type: string, enum: [pending, ready, failed] }
+        sections:
+          type: array
+          items: { type: string }
+        notes:     { type: string }
+        currency:  { type: string }
+        pdfUrl:    { type: string }
+        shareUrl:  { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: [string, "null"], format: date-time }

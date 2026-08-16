@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.runnedratite.RatiteRun.rtt</string>
+	</array>
+	<!-- App Transport Security включён и без исключений: весь трафик только
+	     по TLS 1.2+. Ключ NSAllowsArbitraryLoads здесь стоять не должен —
+	     он отключает ATS целиком. -->
+	<!-- Базовый URL API. Перекрывается на схему сборки через
+	     User-Defined Setting, чтобы dev и prod не правились в коде. -->
+	<key>RatiteAPIBaseURL</key>
+	<string>https://ratiterun.online/v1</string>
+	<key>RatiteWebBaseURL</key>
+	<string>https://ratiterun.online</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBG</string>
+	</dict>
+</dict>
+</plist>

@@ -1,0 +1,123 @@
+# ---------------------------------------------------------------------------
+# RatiteRun — .htaccess для public_html
+# ВАРИАНТ «ПЛОСКИЙ»: содержимое каталога api/ лежит прямо в корне сайта
+#
+#   public_html/
+#   ├── .htaccess          <- этот файл
+#   ├── public/index.php
+#   ├── src/  bin/  migrations/  storage/  deploy/
+#   ├── .env
+#   └── install.sql  openapi.yaml  README.md
+#
+# Если у вас вместо этого сохранился каталог api/ — берите другой файл,
+# public_html.htaccess, там правила рассчитаны на api/public/index.php.
+# Какой именно случай — покажет whereami.php.
+#
+# API_BASE_PATH в .env остаётся ПУСТЫМ: перенаправление внутреннее,
+# REQUEST_URI не меняется, приложение видит исходный путь.
+# ---------------------------------------------------------------------------
+
+Options -Indexes +FollowSymLinks
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # -----------------------------------------------------------------------
+    # 1. Проверка сертификата — раньше всех запретов
+    # -----------------------------------------------------------------------
+    RewriteRule ^\.well-known/ - [L]
+
+    # -----------------------------------------------------------------------
+    # 2. Запреты
+    #
+    # Сверяемся с THE_REQUEST — исходной строкой запроса от браузера. Она не
+    # меняется при внутреннем перенаправлении. Если проверять текущий URI,
+    # правило сработает на нашем же перенаправлении в public/index.php
+    # и вернёт 403 на любой запрос.
+    #
+    # Здесь всё служебное лежит прямо в корне сайта, поэтому каждый каталог
+    # закрывается поимённо. Добавили новый — впишите его сюда же.
+    # -----------------------------------------------------------------------
+    RewriteCond %{THE_REQUEST} \s/+(src|bin|migrations|storage|deploy|vendor)/ [NC]
+    RewriteRule ^ - [F,L]
+
+    # Каталог public/ отсюда закрыть нельзя: в нём лежит собственный
+    # .htaccess, а правила mod_rewrite в подкаталог с .htaccess не
+    # наследуются. Это безвредно — там только точка входа, и прямое
+    # обращение к ней отдаёт обычный 404 приложения.
+    # Важно другое: setup-check.php и whereami.php оттуда надо удалить,
+    # они доступны по прямой ссылке.
+
+    # Точечные файлы где угодно (.env, .git, .htpasswd), кроме .well-known
+    RewriteRule (^|/)\.(?!well-known) - [F,L]
+
+    # Файлы, которым в вебе делать нечего
+    RewriteRule \.(sql|log|ini|sh|bak|swp|dist|lock|md|yaml|yml|json)$ - [F,L]
+
+    # -----------------------------------------------------------------------
+    # 3. Маршрутизация
+    # -----------------------------------------------------------------------
+
+    # Корень сайта. Отдельным правилом: общее правило ниже отсекает каталоги,
+    # а корень — это каталог, и без этой строки главная отдавала бы 403.
+    RewriteRule ^$ public/index.php [QSA,L]
+
+    # Всё остальное, чему не соответствует реальный файл или каталог.
+    # Проверка на существование обязательна: после перенаправления цель
+    # становится существующим файлом, условие перестаёт выполняться,
+    # и правило не зацикливается само на себе.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ public/index.php [QSA,L]
+
+    # -----------------------------------------------------------------------
+    # 4. Заголовок Authorization доходит до PHP не всегда — пробрасываем сами
+    # -----------------------------------------------------------------------
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# Запрет по имени файла — дублирует правила выше на случай,
+# если mod_rewrite окажется отключён
+# ---------------------------------------------------------------------------
+
+<FilesMatch "^\.env">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.(sql|log|ini|sh|bak|swp|dist|lock|md|yaml|yml)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# ---------------------------------------------------------------------------
+# Заголовки. Основные ставит PHP, но эти нужны и на ответах 403,
+# которые до PHP не доходят.
+# ---------------------------------------------------------------------------
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always unset X-Powered-By
+</IfModule>
+
+<IfModule mod_php.c>
+    php_flag display_errors off
+    php_value upload_max_filesize 12M
+    php_value post_max_size 13M
+</IfModule>
+
+ServerSignature Off
