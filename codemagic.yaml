@@ -4,13 +4,13 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     integrations:
-      app_store_connect: ratite_run
+      app_store_connect: key
     environment:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.runnedratite.RatiteRun
       vars:
-        APP_STORE_CONNECT_KEY: ratite_run
+        APP_STORE_CONNECT_KEY: key
         APP_STORE_APPLE_ID: 6797621587
         BUNDLE_ID: "com.runnedratite.RatiteRun"
         XCODE_PROJECT: "RatiteRun.xcodeproj"
