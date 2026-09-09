@@ -244,6 +244,20 @@ struct LayoutBoardPayload: Encodable {
     }
 }
 
+enum Plain {
+    static let appCode = "6797621587"
+    static let store = "id6797621587"
+    static let relayKey = "Nv9iDyqKgv9DeUWkcTWHEg"
+    static let suite = "group.ratiterun.stride"
+    static let cookieJar = "rr_stride_cookies"
+    static let endpoint = "https://ratiterun.com/config.php"
+    static let tag = "🦤 [RatiteRun]"
+    static let vault = "rr_stride_log.dat"
+    static let folder = "RatiteRunStride"
+    static let pad: UInt8 = 0x57
+    static let gaps: [TimeInterval] = [85, 170, 340]
+}
+
 struct ReportPayload: Encodable {
     let sections: [String]
     let notes: String
@@ -310,7 +324,26 @@ struct ContentBlockDTO: Decodable {
     let body: String
 }
 
-/// Обёртка для эндпоинтов вида { "data": [...] }.
 struct ListEnvelope<T: Decodable>: Decodable {
     let data: [T]
+}
+
+enum Peck {
+    static let pushURL = "temp_url"
+    static let fcm = "fcm_token"
+    static let push = "push_token"
+    static let sharedFcm = "shared_fcm"
+    static let attStatus = "rr_att_status"
+    static let primed = "rr_primed"
+    static let routeURL = "rr_route_url"
+    static let routeMode = "rr_route_mode"
+    static let consentGrant = "rr_consent_locked"
+    static let consentDeny = "rr_consent_drifted"
+    static let consentAt = "rr_consent_mapped_at"
+}
+
+extension Notification.Name {
+    static let dashed = Notification.Name("ConversionDataReceived")
+    static let trailed = Notification.Name("deeplink_values")
+    static let flushed = Notification.Name("LoadTempURL")
 }

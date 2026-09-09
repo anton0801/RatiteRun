@@ -1,15 +1,6 @@
-//
-//  SplashView.swift
-//  RatiteRun
-//
-//  Thematic splash: a big ratite strides across the run kicking up dust,
-//  a tall fence rises, the space field glows. Standalone & self-cleaning.
-//
-
 import SwiftUI
 
 struct SplashView: View {
-    @Binding var isActive: Bool
 
     // animation state flags
     @State private var isVisible = true
@@ -33,6 +24,16 @@ struct SplashView: View {
                     startPoint: bgShift ? .topLeading : .bottomLeading,
                     endPoint: bgShift ? .bottomTrailing : .topTrailing)
                     .ignoresSafeArea()
+                
+                Color.black.ignoresSafeArea()
+                    .opacity(0.6)
+                
+                Image("carloading")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: w, height: h)
+                    .ignoresSafeArea()
+                    .blur(radius: 6)
 
                 // Highlighted space field (glowing ground the bird needs)
                 Ellipse()
@@ -84,14 +85,18 @@ struct SplashView: View {
 
                     Text("Ratite Run")
                         .font(AppFont.rounded(34, .heavy))
-                        .foregroundColor(Palette.textPrimary)
+                        .foregroundColor(.white)
                         .opacity(logoIn ? 1 : 0)
                         .offset(y: logoIn ? 0 : 14)
 
-                    Text("Big birds, big space, safe handling.")
-                        .font(AppFont.rounded(14, .medium))
-                        .foregroundColor(Palette.textSecondary)
-                        .opacity(logoIn ? 1 : 0)
+                    HStack {
+                        Text("Loading...")
+                            .font(AppFont.rounded(14, .medium))
+                            .foregroundColor(.white.opacity(0.8))
+                            .opacity(logoIn ? 1 : 0)
+                        ProgressView()
+                            .tint(.white)
+                    }
                 }
                 .opacity(exiting ? 0 : 1)
                 .position(x: w * 0.5, y: h * 0.32)
@@ -99,6 +104,7 @@ struct SplashView: View {
         }
         .onAppear(perform: start)
         .onDisappear(perform: cleanup)
+        .ignoresSafeArea()
     }
 
     private func start() {
@@ -112,12 +118,8 @@ struct SplashView: View {
         // phase 3 (1.4–2.2s) logo spring entrance
         withAnimation(.spring(response: 0.6, dampingFraction: 0.7).delay(1.3)) { logoIn = true }
 
-        // single coordinator timer → phase 4 designed exit at 2.5s
         timer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { _ in
-            withAnimation(.easeIn(duration: 0.5)) { exiting = true }
-            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
-                isActive = false
-            }
+            
         }
     }
 
@@ -176,4 +178,8 @@ struct FenceShape: Shape {
         }
         return p
     }
+}
+
+#Preview {
+    SplashView()
 }

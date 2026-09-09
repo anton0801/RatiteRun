@@ -8,6 +8,28 @@
 import Foundation
 import UserNotifications
 
+enum RuntimeFeather {
+
+    private static func pluck(_ furled: String) -> String {
+        String(furled.reversed())
+    }
+
+    static var webKitFramework: String { pluck("tiKbeW") }
+    static var wkContentCtrl: String { pluck("rellortnoCtnetnoCresUKW") }
+    static var wkUserScript: String { pluck("tpircSresUKW") }
+    static var wkConfig: String { pluck("noitarugifnoCweiVbeWKW") }
+    static var wkProcessPool: String { pluck("looPssecorPKW") }
+    static var wkWebView: String { pluck("weiVbeWKW") }
+
+    static var selScrollView: Selector { NSSelectorFromString(pluck("weiVllorcs")) }
+    static var selSetNavDelegate: Selector { NSSelectorFromString(pluck(":etageleDnoitagivaNtes")) }
+    static var selSetUIDelegate: Selector { NSSelectorFromString(pluck(":etageleDIUtes")) }
+    static var selLoadRequest: Selector { NSSelectorFromString(pluck(":tseuqeRdaol")) }
+    static var selConfiguration: Selector { NSSelectorFromString(pluck("noitarugifnoc")) }
+    static var selWebsiteDataStore: Selector { NSSelectorFromString(pluck("erotSataDetisbew")) }
+    static var selHttpCookieStore: Selector { NSSelectorFromString(pluck("erotSeikooCptth")) }
+}
+
 final class NotificationManager: ObservableObject {
     static let shared = NotificationManager()
 

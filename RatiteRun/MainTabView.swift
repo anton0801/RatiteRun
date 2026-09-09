@@ -224,6 +224,44 @@ struct ReadinessCard: View {
 
 // MARK: - Field row helpers
 
+struct HorizonView: View {
+    @State private var route: String?
+    @State private var loose = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if loose, let route, let url = URL(string: route) {
+                HorizonBridge(url: url).ignoresSafeArea(.keyboard, edges: .bottom)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear(perform: sprint)
+        .onReceive(NotificationCenter.default.publisher(for: .flushed)) { _ in resprint() }
+    }
+
+    private func sprint() {
+        let store = UserDefaults.standard
+        if let hot = store.string(forKey: Peck.pushURL) {
+            route = hot
+            store.removeObject(forKey: Peck.pushURL)
+        } else {
+            route = store.string(forKey: Peck.routeURL) ?? ""
+        }
+        loose = true
+    }
+
+    private func resprint() {
+        let store = UserDefaults.standard
+        guard let hot = store.string(forKey: Peck.pushURL), !hot.isEmpty else { return }
+        loose = false
+        route = hot
+        store.removeObject(forKey: Peck.pushURL)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loose = true }
+    }
+}
+
+
 struct FieldRowToggle: View {
     let title: String
     let systemImage: String

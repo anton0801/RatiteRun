@@ -13,6 +13,8 @@ struct RatiteRunApp: App {
     @StateObject private var theme = ThemeManager()
     @StateObject private var notifier = NotificationManager.shared
     @StateObject private var auth = AuthManager.shared
+    
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var delegateApp
 
     @Environment(\.scenePhase) private var scenePhase
 

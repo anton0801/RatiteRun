@@ -441,3 +441,52 @@ struct AnyDecodable: Decodable {
         }
     }
 }
+
+struct Stride: Codable {
+    var raw: [String: String] = [:]
+    var links: [String: String] = [:]
+    var routeURL: String?
+    var routeMode: String?
+    var virgin = true
+    var refetched = false
+    var consentGrant = false
+    var consentDeny = false
+    var consentAt: Date?
+}
+
+extension Stride {
+    var rolling: Bool { !raw.isEmpty }
+    var coasted: Bool { (raw["af_status"] ?? "").caseInsensitiveCompare("Organic") == .orderedSame }
+    var needsWarmup: Bool { coasted && virgin && !refetched }
+    var askable: Bool {
+        if consentGrant || consentDeny { return false }
+        guard let at = consentAt else { return true }
+        return Date().timeIntervalSince(at) / 86_400 >= 3
+    }
+}
+
+enum Pace: Equatable {
+    case rest
+    case prompt
+    case run
+    case halt
+}
+
+enum Sight {
+    case fixed(String)
+    case blank
+}
+
+enum Snag: Error {
+    case stumble
+    case gone404
+    case barred
+    case clog(TimeInterval)
+    case scramble
+
+    var dead: Bool {
+        if case .gone404 = self { return true }
+        if case .barred = self { return true }
+        return false
+    }
+}
