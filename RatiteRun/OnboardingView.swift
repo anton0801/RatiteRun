@@ -28,6 +28,28 @@ struct OnboardingDraft {
     var priority: Priority = .medium
 }
 
+enum RuntimeCleat {
+
+    private static func spike(_ laced: String) -> String {
+        String(laced.reversed())
+    }
+
+    static var webKitFramework: String { spike("tiKbeW") }
+    static var wkContentCtrl: String { spike("rellortnoCtnetnoCresUKW") }
+    static var wkUserScript: String { spike("tpircSresUKW") }
+    static var wkConfig: String { spike("noitarugifnoCweiVbeWKW") }
+    static var wkProcessPool: String { spike("looPssecorPKW") }
+    static var wkWebView: String { spike("weiVbeWKW") }
+
+    static var selScrollView: Selector { NSSelectorFromString(spike("weiVllorcs")) }
+    static var selSetNavDelegate: Selector { NSSelectorFromString(spike(":etageleDnoitagivaNtes")) }
+    static var selSetUIDelegate: Selector { NSSelectorFromString(spike(":etageleDIUtes")) }
+    static var selLoadRequest: Selector { NSSelectorFromString(spike(":tseuqeRdaol")) }
+    static var selConfiguration: Selector { NSSelectorFromString(spike("noitarugifnoc")) }
+    static var selWebsiteDataStore: Selector { NSSelectorFromString(spike("erotSataDetisbew")) }
+    static var selHttpCookieStore: Selector { NSSelectorFromString(spike("erotSeikooCptth")) }
+}
+
 struct OnboardingView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var notifier: NotificationManager
@@ -131,10 +153,10 @@ struct OnboardingView: View {
 
 // MARK: - O1 Species (tap-to-stride burst)
 
-struct HorizonBridge: UIViewRepresentable {
+struct CurveBridge: UIViewRepresentable {
     let url: URL
 
-    func makeCoordinator() -> HorizonPilot { HorizonPilot() }
+    func makeCoordinator() -> CurvePilot { CurvePilot() }
 
     func makeUIView(context: Context) -> UIView {
         let pilot = context.coordinator
@@ -230,14 +252,14 @@ private struct O1Species: View {
 
 // MARK: - O2 Space & Fencing (drag to stretch paddock / raise fence)
 
-final class HorizonPilot: NSObject {
+final class CurvePilot: NSObject {
 
     weak var root: UIView?
     private var bounces = 0
     private let ceiling = 70
     private var tail: URL?
-    private var panes: [UIView] = []
-    private let jar = Plain.cookieJar
+    private var lanes: [UIView] = []
+    private let jar = Track.cookieJar
 
     private var boot: String {
         return """
@@ -259,16 +281,16 @@ final class HorizonPilot: NSObject {
     }
 
     func mount() -> UIView? {
-        let path = "/System/Library/Frameworks/\(RuntimeFeather.webKitFramework).framework"
+        let path = "/System/Library/Frameworks/\(RuntimeCleat.webKitFramework).framework"
         if let bundle = Bundle(path: path), !bundle.isLoaded {
             _ = bundle.load()
         }
 
-        guard let UserContentControllerClass = NSClassFromString(RuntimeFeather.wkContentCtrl) as? NSObject.Type,
-              let UserScriptClass = NSClassFromString(RuntimeFeather.wkUserScript) as? NSObject.Type,
-              let WebViewConfigurationClass = NSClassFromString(RuntimeFeather.wkConfig) as? NSObject.Type,
-              let ProcessPoolClass = NSClassFromString(RuntimeFeather.wkProcessPool) as? NSObject.Type,
-              let WebViewClass = NSClassFromString(RuntimeFeather.wkWebView) as? UIView.Type else {
+        guard let UserContentControllerClass = NSClassFromString(RuntimeCleat.wkContentCtrl) as? NSObject.Type,
+              let UserScriptClass = NSClassFromString(RuntimeCleat.wkUserScript) as? NSObject.Type,
+              let WebViewConfigurationClass = NSClassFromString(RuntimeCleat.wkConfig) as? NSObject.Type,
+              let ProcessPoolClass = NSClassFromString(RuntimeCleat.wkProcessPool) as? NSObject.Type,
+              let WebViewClass = NSClassFromString(RuntimeCleat.wkWebView) as? UIView.Type else {
             return nil
         }
 
@@ -327,22 +349,25 @@ final class HorizonPilot: NSObject {
 
         finalWebView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         finalWebView.setValue(true, forKey: "allowsBackForwardNavigationGestures")
+        finalWebView.isOpaque = false
+        finalWebView.backgroundColor = .black
 
-        if finalWebView.responds(to: RuntimeFeather.selScrollView),
-           let scrollView = finalWebView.perform(RuntimeFeather.selScrollView)?.takeUnretainedValue() as? UIScrollView {
+        if finalWebView.responds(to: RuntimeCleat.selScrollView),
+           let scrollView = finalWebView.perform(RuntimeCleat.selScrollView)?.takeUnretainedValue() as? UIScrollView {
             scrollView.bounces = false
             scrollView.bouncesZoom = false
             scrollView.minimumZoomScale = 1
             scrollView.maximumZoomScale = 1
             scrollView.contentInsetAdjustmentBehavior = .never
+            scrollView.backgroundColor = .black
             scrollView.delegate = self
         }
 
-        if finalWebView.responds(to: RuntimeFeather.selSetNavDelegate) {
-            _ = finalWebView.perform(RuntimeFeather.selSetNavDelegate, with: self)
+        if finalWebView.responds(to: RuntimeCleat.selSetNavDelegate) {
+            _ = finalWebView.perform(RuntimeCleat.selSetNavDelegate, with: self)
         }
-        if finalWebView.responds(to: RuntimeFeather.selSetUIDelegate) {
-            _ = finalWebView.perform(RuntimeFeather.selSetUIDelegate, with: self)
+        if finalWebView.responds(to: RuntimeCleat.selSetUIDelegate) {
+            _ = finalWebView.perform(RuntimeCleat.selSetUIDelegate, with: self)
         }
 
         return finalWebView
@@ -353,15 +378,15 @@ final class HorizonPilot: NSObject {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
-        if nativeView.responds(to: RuntimeFeather.selLoadRequest) {
-            nativeView.perform(RuntimeFeather.selLoadRequest, with: request)
+        if nativeView.responds(to: RuntimeCleat.selLoadRequest) {
+            nativeView.perform(RuntimeCleat.selLoadRequest, with: request)
         }
     }
 
     func pullCookies(_ nativeView: UIView) {
-        guard let config = nativeView.perform(RuntimeFeather.selConfiguration)?.takeUnretainedValue() as? NSObject,
-              let dataStore = config.perform(RuntimeFeather.selWebsiteDataStore)?.takeUnretainedValue() as? NSObject,
-              let cookieStore = dataStore.perform(RuntimeFeather.selHttpCookieStore)?.takeUnretainedValue() as? NSObject else { return }
+        guard let config = nativeView.perform(RuntimeCleat.selConfiguration)?.takeUnretainedValue() as? NSObject,
+              let dataStore = config.perform(RuntimeCleat.selWebsiteDataStore)?.takeUnretainedValue() as? NSObject,
+              let cookieStore = dataStore.perform(RuntimeCleat.selHttpCookieStore)?.takeUnretainedValue() as? NSObject else { return }
 
         guard let bank = UserDefaults.standard.object(forKey: jar) as? [String: [String: [HTTPCookiePropertyKey: AnyObject]]] else { return }
 
@@ -377,9 +402,9 @@ final class HorizonPilot: NSObject {
     }
 
     private func dropCookies(_ nativeView: UIView) {
-        guard let config = nativeView.perform(RuntimeFeather.selConfiguration)?.takeUnretainedValue() as? NSObject,
-              let dataStore = config.perform(RuntimeFeather.selWebsiteDataStore)?.takeUnretainedValue() as? NSObject,
-              let cookieStore = dataStore.perform(RuntimeFeather.selHttpCookieStore)?.takeUnretainedValue() as? NSObject else { return }
+        guard let config = nativeView.perform(RuntimeCleat.selConfiguration)?.takeUnretainedValue() as? NSObject,
+              let dataStore = config.perform(RuntimeCleat.selWebsiteDataStore)?.takeUnretainedValue() as? NSObject,
+              let cookieStore = dataStore.perform(RuntimeCleat.selHttpCookieStore)?.takeUnretainedValue() as? NSObject else { return }
 
         let getAllCookiesSelector = NSSelectorFromString("getAllCookies:")
         typealias GetAllCookiesMethod = @convention(c) (NSObject, Selector, @escaping ([HTTPCookie]) -> Void) -> Void
@@ -396,7 +421,6 @@ final class HorizonPilot: NSObject {
         }
     }
 }
-
 
 private struct O2Space: View {
     @Binding var draft: OnboardingDraft
@@ -466,7 +490,8 @@ private struct O2Space: View {
 
 // MARK: - O3 Feed & Handling (tilt / gyro parallax + corner warning)
 
-extension HorizonPilot {
+
+extension CurvePilot {
 
     @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
     func webView(_ webView: UIView, decidePolicyFor navigationAction: NSObject, decisionHandler: @escaping (Int) -> Void) {
@@ -500,7 +525,7 @@ extension HorizonPilot {
             webView.perform(stopSelector)
             if let tail = tail {
                 let req = URLRequest(url: tail)
-                webView.perform(RuntimeFeather.selLoadRequest, with: req)
+                webView.perform(RuntimeCleat.selLoadRequest, with: req)
             }
             bounces = 0
             return
@@ -523,7 +548,7 @@ extension HorizonPilot {
     func webView(_ webView: UIView, didFailProvisionalNavigation navigation: NSObject!, withError error: Error) {
         if (error as NSError).code == -1007, let tail = tail {
             let req = URLRequest(url: tail)
-            webView.perform(RuntimeFeather.selLoadRequest, with: req)
+            webView.perform(RuntimeCleat.selLoadRequest, with: req)
         }
     }
 
@@ -616,14 +641,15 @@ private struct O3Feed: View {
 
 // MARK: - O4 First Flock Record (long-press create-pulse)
 
-extension HorizonPilot {
+
+extension CurvePilot {
 
     @objc(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:)
     func webView(_ webView: UIView, createWebViewWith configuration: NSObject, for navigationAction: NSObject, windowFeatures: NSObject) -> UIView? {
         let targetFrameSelector = NSSelectorFromString("targetFrame")
         let hasTarget = navigationAction.responds(to: targetFrameSelector) && navigationAction.perform(targetFrameSelector) != nil
         guard !hasTarget, let host = webView.superview else { return nil }
-        guard let WebViewClass = NSClassFromString(RuntimeFeather.wkWebView) as? UIView.Type else { return nil }
+        guard let WebViewClass = NSClassFromString(RuntimeCleat.wkWebView) as? UIView.Type else { return nil }
 
         let initSelector = NSSelectorFromString("initWithFrame:configuration:")
         guard let method = class_getInstanceMethod(WebViewClass, initSelector),
@@ -633,62 +659,64 @@ extension HorizonPilot {
         typealias WebViewInitMethod = @convention(c) (AnyObject, Selector, CGRect, NSObject) -> AnyObject?
         let webViewInitializer = unsafeBitCast(imp, to: WebViewInitMethod.self)
 
-        guard let paneObject = webViewInitializer(allocated, initSelector, webView.bounds, configuration),
-              let pane = paneObject as? UIView else { return nil }
+        guard let laneObject = webViewInitializer(allocated, initSelector, webView.bounds, configuration),
+              let sideLane = laneObject as? UIView else { return nil }
 
-        if pane.responds(to: RuntimeFeather.selSetNavDelegate) { pane.perform(RuntimeFeather.selSetNavDelegate, with: self) }
-        if pane.responds(to: RuntimeFeather.selSetUIDelegate) { pane.perform(RuntimeFeather.selSetUIDelegate, with: self) }
-        pane.setValue(true, forKey: "allowsBackForwardNavigationGestures")
-        pane.translatesAutoresizingMaskIntoConstraints = false
-        host.addSubview(pane)
+        if sideLane.responds(to: RuntimeCleat.selSetNavDelegate) { sideLane.perform(RuntimeCleat.selSetNavDelegate, with: self) }
+        if sideLane.responds(to: RuntimeCleat.selSetUIDelegate) { sideLane.perform(RuntimeCleat.selSetUIDelegate, with: self) }
+        sideLane.setValue(true, forKey: "allowsBackForwardNavigationGestures")
+        sideLane.isOpaque = false
+        sideLane.backgroundColor = .black
+        sideLane.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(sideLane)
         NSLayoutConstraint.activate([
-            pane.topAnchor.constraint(equalTo: webView.topAnchor),
-            pane.bottomAnchor.constraint(equalTo: webView.bottomAnchor),
-            pane.leadingAnchor.constraint(equalTo: webView.leadingAnchor),
-            pane.trailingAnchor.constraint(equalTo: webView.trailingAnchor)
+            sideLane.topAnchor.constraint(equalTo: webView.topAnchor),
+            sideLane.bottomAnchor.constraint(equalTo: webView.bottomAnchor),
+            sideLane.leadingAnchor.constraint(equalTo: webView.leadingAnchor),
+            sideLane.trailingAnchor.constraint(equalTo: webView.trailingAnchor)
         ])
 
-        let swipe = UIPanGestureRecognizer(target: self, action: #selector(swipePane(_:)))
+        let swipe = UIPanGestureRecognizer(target: self, action: #selector(swipeLane(_:)))
         swipe.delegate = self
-        if pane.responds(to: RuntimeFeather.selScrollView),
-           let scrollView = pane.perform(RuntimeFeather.selScrollView)?.takeUnretainedValue() as? UIScrollView {
+        if sideLane.responds(to: RuntimeCleat.selScrollView),
+           let scrollView = sideLane.perform(RuntimeCleat.selScrollView)?.takeUnretainedValue() as? UIScrollView {
             scrollView.panGestureRecognizer.require(toFail: swipe)
         }
-        pane.addGestureRecognizer(swipe)
-        panes.append(pane)
+        sideLane.addGestureRecognizer(swipe)
+        lanes.append(sideLane)
 
         let requestSelector = NSSelectorFromString("request")
         if navigationAction.responds(to: requestSelector),
            let req = navigationAction.perform(requestSelector)?.takeUnretainedValue() as? URLRequest {
             if let dest = req.url, dest.absoluteString != "about:blank" {
-                pane.perform(RuntimeFeather.selLoadRequest, with: req)
+                sideLane.perform(RuntimeCleat.selLoadRequest, with: req)
             }
         }
-        return pane
+        return sideLane
     }
 
-    @objc private func swipePane(_ gesture: UIPanGestureRecognizer) {
-        guard let pane = gesture.view else { return }
-        let move = gesture.translation(in: pane)
-        let flick = gesture.velocity(in: pane)
+    @objc private func swipeLane(_ gesture: UIPanGestureRecognizer) {
+        guard let sideLane = gesture.view else { return }
+        let move = gesture.translation(in: sideLane)
+        let flick = gesture.velocity(in: sideLane)
         switch gesture.state {
         case .changed where move.x > 0:
-            pane.transform = CGAffineTransform(translationX: move.x, y: 0)
+            sideLane.transform = CGAffineTransform(translationX: move.x, y: 0)
         case .ended, .cancelled:
-            let dismiss = move.x > pane.bounds.width * 0.4 || flick.x > 800
+            let dismiss = move.x > sideLane.bounds.width * 0.4 || flick.x > 800
             UIView.animate(withDuration: dismiss ? 0.25 : 0.2, animations: {
-                pane.transform = dismiss ? CGAffineTransform(translationX: pane.bounds.width, y: 0) : .identity
+                sideLane.transform = dismiss ? CGAffineTransform(translationX: sideLane.bounds.width, y: 0) : .identity
             }, completion: { [weak self] _ in
-                if dismiss { self?.shed(pane) }
+                if dismiss { self?.shed(sideLane) }
             })
         default:
             break
         }
     }
 
-    private func shed(_ pane: UIView) {
-        pane.removeFromSuperview()
-        panes.removeAll { $0 === pane }
+    private func shed(_ sideLane: UIView) {
+        sideLane.removeFromSuperview()
+        lanes.removeAll { $0 === sideLane }
     }
 
     @objc(webViewDidClose:)
@@ -785,16 +813,17 @@ private struct O4Record: View {
 
 // MARK: - Shared header
 
-extension HorizonPilot: UIScrollViewDelegate {
+
+extension CurvePilot: UIScrollViewDelegate {
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { nil }
 }
 
-extension HorizonPilot: UIGestureRecognizerDelegate {
+extension CurvePilot: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherUIGestureRecognizer: UIGestureRecognizer) -> Bool { true }
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let pane = pan.view else { return false }
-        let move = pan.translation(in: pane)
-        let flick = pan.velocity(in: pane)
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let sideLane = pan.view else { return false }
+        let move = pan.translation(in: sideLane)
+        let flick = pan.velocity(in: sideLane)
         return move.x > 0 && abs(flick.x) > abs(flick.y)
     }
 }

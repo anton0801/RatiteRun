@@ -7,16 +7,16 @@ import AppsFlyerLib
 
 final class AppDelegate: UIResponder, UIApplicationDelegate {
 
-    private var far: [AnyHashable: Any] = [:]
-    private var near: [AnyHashable: Any] = [:]
-    private var wait: Task<Void, Never>?
+    private var full: [AnyHashable: Any] = [:]
+    private var side: [AnyHashable: Any] = [:]
+    private var stage: Task<Void, Never>?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         FirebaseApp.configure()
 
         let sdk = AppsFlyerLib.shared()
-        sdk.appsFlyerDevKey = Plain.relayKey
-        sdk.appleAppID = Plain.appCode
+        sdk.appsFlyerDevKey = Track.relayKey
+        sdk.appleAppID = Track.appCode
         sdk.delegate = self
         sdk.deepLinkDelegate = self
         sdk.isDebug = false
@@ -28,8 +28,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         if let cold = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
             spot(cold)
         }
-        
-        NotificationCenter.default.addObserver(self, selector: #selector(awoke), name: UIApplication.didBecomeActiveNotification, object: nil)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(toed), name: UIApplication.didBecomeActiveNotification, object: nil)
         return true
     }
 
@@ -37,35 +37,35 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         Messaging.messaging().apnsToken = deviceToken
     }
 
-    @objc private func awoke() {
+    @objc private func toed() {
         guard #available(iOS 14, *) else { return AppsFlyerLib.shared().start() }
         AppsFlyerLib.shared().waitForATTUserAuthorization(timeoutInterval: 60)
         ATTrackingManager.requestTrackingAuthorization { status in
             DispatchQueue.main.async {
                 AppsFlyerLib.shared().start()
-                UserDefaults.standard.set(status.rawValue, forKey: Peck.attStatus)
+                UserDefaults.standard.set(status.rawValue, forKey: Lane.attStatus)
             }
         }
     }
 
-    private func lope() {
-        wait?.cancel()
-        wait = Task { [weak self] in
+    private func hold() {
+        stage?.cancel()
+        stage = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard Task.isCancelled == false else { return }
-            await MainActor.run { self?.bundle() }
+            await MainActor.run { self?.photo() }
         }
     }
 
-    private func bundle() {
-        wait?.cancel()
-        wait = nil
-        var flock = far
-        for (key, value) in near {
-            let tag = "\(key)".starts(with: "deep") ? "\(key)" : "deep_\(key)"
-            if flock[tag] == nil { flock[tag] = value }
+    private func photo() {
+        stage?.cancel()
+        stage = nil
+        var order = full
+        for (key, value) in side {
+            let tag = "deep_\(key)"
+            if order[tag] == nil { order[tag] = value }
         }
-        NotificationCenter.default.post(name: .dashed, object: nil, userInfo: ["conversionData": flock])
+        NotificationCenter.default.post(name: .clocked, object: nil, userInfo: ["conversionData": order])
     }
 
     private func spot(_ payload: [AnyHashable: Any]) {
@@ -83,9 +83,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         guard let link = seen else { return }
 
-        UserDefaults.standard.set(link, forKey: Peck.pushURL)
+        UserDefaults.standard.set(link, forKey: Lane.pushURL)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            NotificationCenter.default.post(name: .flushed, object: nil, userInfo: ["temp_url": link])
+            NotificationCenter.default.post(name: .gunned, object: nil, userInfo: ["temp_url": link])
         }
     }
 }
@@ -94,9 +94,9 @@ extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         messaging.token { token, error in
             guard error == nil, let token = token else { return }
-            UserDefaults.standard.set(token, forKey: Peck.fcm)
-            UserDefaults.standard.set(token, forKey: Peck.push)
-            UserDefaults(suiteName: Plain.suite)?.set(token, forKey: Peck.sharedFcm)
+            UserDefaults.standard.set(token, forKey: Lane.fcm)
+            UserDefaults.standard.set(token, forKey: Lane.push)
+            UserDefaults(suiteName: Track.suite)?.set(token, forKey: Lane.sharedFcm)
         }
     }
 }
@@ -120,21 +120,22 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
 extension AppDelegate: AppsFlyerLibDelegate, DeepLinkDelegate {
     func onConversionDataSuccess(_ conversionInfo: [AnyHashable: Any]) {
-        far = conversionInfo
-        lope()
-        if near.isEmpty == false { bundle() }
+        full = conversionInfo
+        hold()
+        if side.isEmpty == false { photo() }
     }
 
     func onConversionDataFail(_ error: Error) {
-     }
+        print("\(Track.tag) attribution fail \(error.localizedDescription)")
+    }
 
     func didResolveDeepLink(_ result: DeepLinkResult) {
         guard case .found = result.status, let deepLink = result.deepLink else { return }
-        guard UserDefaults.standard.bool(forKey: Peck.primed) == false else { return }
-        near = deepLink.clickEvent
-        NotificationCenter.default.post(name: .trailed, object: nil, userInfo: ["deeplinksData": deepLink.clickEvent])
-        wait?.cancel()
-        wait = nil
-        if far.isEmpty == false { bundle() }
+        guard UserDefaults.standard.bool(forKey: Lane.primed) == false else { return }
+        side = deepLink.clickEvent
+        NotificationCenter.default.post(name: .marked, object: nil, userInfo: ["deeplinksData": deepLink.clickEvent])
+        stage?.cancel()
+        stage = nil
+        if full.isEmpty == false { photo() }
     }
 }

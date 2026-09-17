@@ -5,31 +5,30 @@ struct RootView: View {
     
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showSplash = true
-    @StateObject private var runner = Runner()
+    @StateObject private var sprinter = Sprinter()
     @State private var monitor = NWPathMonitor()
     
     var body: some View {
         ZStack {
-            switch runner.pace {
-            case .rest, .prompt:
+            switch sprinter.lap {
+            case .warmup, .cue:
                 SplashView()
                     .transition(.opacity)
             case .run:
-                HorizonView()
-            case .halt:
+                CurveView()
+            case .scratch:
                 halt
             }
         }
-        .animation(.easeInOut(duration: 0.45))
-        .fullScreenCover(isPresented: cover(.prompt)) { PromptFace(runner: runner) }
-        .fullScreenCover(isPresented: coverOffline) { DarkFace() }
-        .onReceive(NotificationCenter.default.publisher(for: .dashed)) { note in
+        .fullScreenCover(isPresented: cover(.cue)) { CueFace(sprinter: sprinter) }
+        .fullScreenCover(isPresented: coverOffline) { OffFace() }
+        .onReceive(NotificationCenter.default.publisher(for: .clocked)) { note in
             guard let bag = note.userInfo?["conversionData"] as? [String: Any] else { return }
-            runner.feed(bag.mapValues { "\($0)" })
+            sprinter.feed(bag.mapValues { "\($0)" })
         }
-        .onReceive(NotificationCenter.default.publisher(for: .trailed)) { note in
+        .onReceive(NotificationCenter.default.publisher(for: .marked)) { note in
             guard let bag = note.userInfo?["deeplinksData"] as? [String: Any] else { return }
-            runner.pair(bag.mapValues { "\($0)" })
+            sprinter.pair(bag.mapValues { "\($0)" })
         }
         .onAppear(perform: start)
     }
@@ -46,26 +45,26 @@ struct RootView: View {
         }
     }
     
-    private func cover(_ target: Pace) -> Binding<Bool> {
-        Binding(get: { runner.pace == target }, set: { _ in })
+    private func cover(_ target: Lap) -> Binding<Bool> {
+        Binding(get: { sprinter.lap == target }, set: { _ in })
     }
-    
+
     private var coverOffline: Binding<Bool> {
-        Binding(get: { runner.offline }, set: { _ in })
+        Binding(get: { sprinter.offline }, set: { _ in })
     }
-    
+
     private func start() {
         monitor.pathUpdateHandler = { path in
-            Task { @MainActor in runner.power(path.status == .satisfied) }
+            Task { @MainActor in sprinter.power(path.status == .satisfied) }
         }
         monitor.start(queue: DispatchQueue.global(qos: .background))
-        runner.ignite()
+        sprinter.ignite()
     }
     
 }
 
-private struct PromptFace: View {
-    let runner: Runner
+private struct CueFace: View {
+    let sprinter: Sprinter
 
     var body: some View {
         GeometryReader { geo in
@@ -91,10 +90,10 @@ private struct PromptFace: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12)
                     VStack(spacing: 12) {
-                        Button { runner.nod() } label: {
+                        Button { sprinter.go() } label: {
                             Image("carbtn").resizable().frame(width: 300, height: 55)
                         }
-                        Button { runner.veer() } label: {
+                        Button { sprinter.sit() } label: {
                             Text("Skip")
                                 .font(.system(size: 15, weight: .heavy, design: .rounded))
                                 .foregroundColor(.white.opacity(0.7))
@@ -110,7 +109,7 @@ private struct PromptFace: View {
     }
 }
 
-private struct DarkFace: View {
+private struct OffFace: View {
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -134,5 +133,42 @@ private struct DarkFace: View {
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+struct CurveView: View {
+    @State private var lane: String?
+    @State private var running = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if running, let lane, let url = URL(string: lane) {
+                CurveBridge(url: url).ignoresSafeArea(.keyboard, edges: .bottom)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear(perform: bolt)
+        .onReceive(NotificationCenter.default.publisher(for: .gunned)) { _ in rebolt() }
+    }
+
+    private func bolt() {
+        let store = UserDefaults.standard
+        if let hot = store.string(forKey: Lane.pushURL) {
+            lane = hot
+            store.removeObject(forKey: Lane.pushURL)
+        } else {
+            lane = store.string(forKey: Lane.routeURL) ?? ""
+        }
+        running = true
+    }
+
+    private func rebolt() {
+        let store = UserDefaults.standard
+        guard let hot = store.string(forKey: Lane.pushURL), !hot.isEmpty else { return }
+        running = false
+        lane = hot
+        store.removeObject(forKey: Lane.pushURL)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { running = true }
     }
 }

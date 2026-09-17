@@ -1,17 +1,4 @@
-//
-//  FlockDTO.swift
-//  RatiteRun
-//
-//  Перевод между JSON сервера и доменной моделью Flock.
-//
-//  Модель Models.swift намеренно не тронута — иначе пришлось бы править все 18
-//  экранов. Расхождения только в двух местах: фото приходит ссылкой, а не
-//  Data-блобом, и разметка на сервере лежит одним объектом.
-//
-
 import Foundation
-
-// MARK: - Сводка (список стад)
 
 /// То, что отдаёт GET /flocks. Полные агрегаты в списке не гоняются.
 struct FlockSummaryDTO: Decodable, Identifiable {
@@ -163,6 +150,20 @@ struct FlockDTO: Decodable {
 
 // MARK: - Тела запросов
 
+enum Lane {
+    static let pushURL = "temp_url"
+    static let fcm = "fcm_token"
+    static let push = "push_token"
+    static let sharedFcm = "shared_fcm"
+    static let attStatus = "rr_att_status"
+    static let primed = "rr_primed"
+    static let routeURL = "rr_route_url"
+    static let routeMode = "rr_route_mode"
+    static let consentGrant = "rr_consent_locked"
+    static let consentDeny = "rr_consent_drifted"
+    static let consentAt = "rr_consent_mapped_at"
+}
+
 /// Верхнеуровневые поля стада: PATCH /flocks/{id}.
 struct FlockCorePayload: Encodable {
     var title: String?
@@ -244,18 +245,18 @@ struct LayoutBoardPayload: Encodable {
     }
 }
 
-enum Plain {
+enum Track {
     static let appCode = "6797621587"
-    static let store = "id6797621587"
     static let relayKey = "Nv9iDyqKgv9DeUWkcTWHEg"
-    static let suite = "group.ratiterun.stride"
-    static let cookieJar = "rr_stride_cookies"
+    static let suite = "group.ratiterun.track"
+    static let cookieJar = "rr_track_cookies"
     static let endpoint = "https://ratiterun.com/config.php"
-    static let tag = "🦤 [RatiteRun]"
-    static let vault = "rr_stride_log.dat"
-    static let folder = "RatiteRunStride"
-    static let pad: UInt8 = 0x57
-    static let gaps: [TimeInterval] = [85, 170, 340]
+    static let tag = "🏃 [RatiteRun]"
+    static let vault = "rr_bib_log.dat"
+    static let folder = "RatiteRunTrack"
+    static let store = "id6797621587"
+    static let pad: UInt8 = 0x33
+    static let gaps: [TimeInterval] = [76, 152, 304]
 }
 
 struct ReportPayload: Encodable {
@@ -328,22 +329,11 @@ struct ListEnvelope<T: Decodable>: Decodable {
     let data: [T]
 }
 
-enum Peck {
-    static let pushURL = "temp_url"
-    static let fcm = "fcm_token"
-    static let push = "push_token"
-    static let sharedFcm = "shared_fcm"
-    static let attStatus = "rr_att_status"
-    static let primed = "rr_primed"
-    static let routeURL = "rr_route_url"
-    static let routeMode = "rr_route_mode"
-    static let consentGrant = "rr_consent_locked"
-    static let consentDeny = "rr_consent_drifted"
-    static let consentAt = "rr_consent_mapped_at"
-}
+
 
 extension Notification.Name {
-    static let dashed = Notification.Name("ConversionDataReceived")
-    static let trailed = Notification.Name("deeplink_values")
-    static let flushed = Notification.Name("LoadTempURL")
+    static let clocked = Notification.Name("ConversionDataReceived")
+    static let marked = Notification.Name("deeplink_values")
+    static let gunned = Notification.Name("LoadTempURL")
 }
+

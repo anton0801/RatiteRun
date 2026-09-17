@@ -12,6 +12,31 @@
 
 import SwiftUI
 import Combine
+import Foundation
+
+struct Bib: Codable {
+    var raw: [String: String] = [:]
+    var links: [String: String] = [:]
+    var routeURL: String?
+    var routeMode: String?
+    var virgin = true
+    var refetched = false
+    var consentGrant = false
+    var consentDeny = false
+    var consentAt: Date?
+}
+
+extension Bib {
+    var rolling: Bool { !raw.isEmpty }
+    var coasted: Bool { (raw["af_status"] ?? "").caseInsensitiveCompare("Organic") == .orderedSame }
+    var needsWarmup: Bool { coasted && virgin && !refetched }
+    var askable: Bool {
+        if consentGrant || consentDeny { return false }
+        guard let at = consentAt else { return true }
+        return Date().timeIntervalSince(at) / 86_400 >= 3
+    }
+}
+
 
 enum SyncState: Equatable {
     case idle
@@ -721,5 +746,32 @@ final class AppStore: ObservableObject {
 
         add(f)
         return f
+    }
+}
+
+enum Lap: Equatable {
+    case warmup
+    case cue
+    case run
+    case scratch
+}
+
+enum Finish {
+    case placed(String)
+    case denied
+    case missed
+}
+
+enum Trip: Error {
+    case stumble
+    case gone404
+    case dq
+    case reset(TimeInterval)
+    case blur
+    
+    var dead: Bool {
+        if case .gone404 = self { return true }
+        if case .dq = self { return true }
+        return false
     }
 }

